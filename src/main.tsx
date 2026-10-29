@@ -10,7 +10,7 @@ function Home() {
   const links: [string, string, string][] = [
     ['/mj', 'Meneur de jeu', 'Sur le téléphone : scannez le QR code affiché par le serveur.'],
     ['/regie', 'Régie', 'Sur le PC relié aux enceintes et aux lumières.'],
-    ['/public', 'Écran public', 'Sur le projecteur. Double-clic pour le plein écran.']
+    ['/public', 'Écran public', 'Sur le projecteur ou la TV. Clic ou OK de la télécommande pour le plein écran.']
   ]
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 p-6">
