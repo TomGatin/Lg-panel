@@ -1,38 +1,72 @@
+/* Self-hosted so the game runs in a venue without internet. */
+@import '@fontsource/cinzel/500.css';
+@import '@fontsource/cinzel/700.css';
+@import '@fontsource/eb-garamond/400.css';
+@import '@fontsource/eb-garamond/400-italic.css';
+@import '@fontsource/eb-garamond/600.css';
+@import '@fontsource/source-sans-3/400.css';
+@import '@fontsource/source-sans-3/600.css';
+@import '@fontsource/source-sans-3/700.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  html,
   body {
-    @apply bg-ink-950 text-parchment-200 antialiased selection:bg-oxblood-800 selection:text-white;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    @apply bg-ink text-bone antialiased;
+    -webkit-tap-highlight-color: transparent;
   }
-
-  h1, h2, h3, h4, .font-serif {
-    font-family: 'Cinzel', Georgia, serif;
+  button {
+    @apply select-none;
+    touch-action: manipulation;
   }
-
-  .font-display {
-    font-family: 'Cinzel Decorative', Georgia, serif;
+  button:disabled {
+    @apply cursor-not-allowed opacity-40;
   }
-
-  .font-reading {
-    font-family: 'Cormorant Garamond', Georgia, serif;
+  :focus-visible {
+    @apply outline outline-2 outline-offset-2 outline-blood-text;
   }
 }
 
-/* Discreet antique scrollbars */
+@layer components {
+  /* Gravure: thin rule frame with red corner marks. */
+  .engraved {
+    @apply relative border border-rule;
+  }
+  .engraved::before,
+  .engraved::after {
+    content: '';
+    @apply pointer-events-none absolute h-3.5 w-3.5 border-blood;
+  }
+  .engraved::before {
+    @apply -left-px -top-px border-l-2 border-t-2;
+  }
+  .engraved::after {
+    @apply -bottom-px -right-px border-b-2 border-r-2;
+  }
+  .label-caps {
+    @apply font-display text-xs font-bold uppercase tracking-[0.14em] text-muted;
+  }
+  .regie-label {
+    @apply text-[13px] font-bold uppercase tracking-[0.08em] text-muted;
+  }
+}
+
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-::-webkit-scrollbar-track {
-  background: #0c0c0f;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #202029;
-  border-radius: 2px;
+  background: #3b352c;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #3a3a49;
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }

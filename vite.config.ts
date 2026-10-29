@@ -1,29 +1,19 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const socketSyncPlugin = () => {
-  return {
-    name: 'lg-socket-sync',
-    configureServer(server) {
-      server.ws.on('lg:play-sound', (data, client) => {
-        server.ws.clients.forEach((c) => {
-          if (c !== client) {
-            c.send('lg:play-sound', data)
-          }
-        })
-      })
-
-      server.ws.on('lg:sync-state', (data, client) => {
-        server.ws.clients.forEach((c) => {
-          if (c !== client) {
-            c.send('lg:sync-state', data)
-          }
-        })
-      })
-    }
-  }
-}
+const SERVER = `http://localhost:${process.env.PORT ?? 3000}`
 
 export default defineConfig({
-  plugins: [react(), socketSyncPlugin()],
+  plugins: [react()],
+  server: {
+    proxy: {
+      '/ws': { target: SERVER, ws: true },
+      '/api': SERVER
+    }
+  },
+  test: {
+    include: ['tests/**/*.test.ts'],
+    environment: 'node'
+  }
 })

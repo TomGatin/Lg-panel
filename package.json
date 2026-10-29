@@ -1,28 +1,42 @@
 {
   "name": "lg-panel",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "test": "tsx src/utils/test-rules.ts"
+    "dev": "concurrently -k -n serveur,web -c red,gray \"tsx watch server/index.ts\" \"vite --host\"",
+    "start": "vite build && NODE_ENV=production tsx server/index.ts",
+    "build": "npm run typecheck && vite build",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.server.json",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource/cinzel": "^5.3.0",
+    "@fontsource/eb-garamond": "^5.3.0",
+    "@fontsource/source-sans-3": "^5.3.1",
+    "@hono/node-server": "^1.19.17",
+    "hono": "^4.13.14",
     "lucide-react": "^0.446.0",
+    "qrcode-terminal": "^0.12.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "ws": "^8.22.0",
+    "zustand": "^4.5.7"
   },
   "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/qrcode-terminal": "^0.12.2",
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
+    "concurrently": "^9.2.5",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
     "tsx": "^4.23.15",
     "typescript": "^5.6.2",
-    "vite": "^5.4.8"
+    "vite": "^5.4.8",
+    "vitest": "^2.1.9"
   }
 }
