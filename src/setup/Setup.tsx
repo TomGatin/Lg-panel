@@ -1,5 +1,5 @@
-import { ArrowDown, ArrowUp, Plus, Save, Trash2, Users, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { ArrowDown, ArrowUp, GripVertical, Plus, Save, Trash2, Users, X } from 'lucide-react'
+import { PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { PRESETS, ROLES } from '../../shared/roles'
 import { CompositionPreset, RoleId, SetupPlayer } from '../../shared/types'
 import { useLive } from '../lib/live'
@@ -11,6 +11,7 @@ interface Row {
 
 const DRAFT_KEY = 'lg-setup-draft'
 const ROLE_IDS = Object.keys(ROLES) as RoleId[]
+const SCROLL_EDGE = 64
 const WOLF_TEAM = new Set<RoleId>(['loup_garou', 'grand_mechant_loup', 'infect_pere_des_loups'])
 
 function loadDraft(): Row[] {
@@ -86,6 +87,34 @@ export function Setup() {
     ;[next[i], next[j]] = [next[j], next[i]]
     return next
   })
+  const moveTo = (from: number, to: number) => setRows(rs => {
+    const next = [...rs]
+    next.splice(to, 0, ...next.splice(from, 1))
+    return next
+  })
+
+  // Drag by the seat number. Pointer events rather than HTML5 drag & drop, which ignores touch on the MJ phone.
+  const listRef = useRef<HTMLDivElement>(null)
+  const [dragged, setDragged] = useState<number | null>(null)
+  const startDrag = (i: number, e: PointerEvent<HTMLElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDragged(i)
+  }
+  const dragOver = (e: PointerEvent<HTMLElement>) => {
+    if (dragged === null || !listRef.current) return
+    if (e.clientY < SCROLL_EDGE) window.scrollBy(0, -12)
+    else if (e.clientY > window.innerHeight - SCROLL_EDGE) window.scrollBy(0, 12)
+    const seats = listRef.current.querySelectorAll<HTMLElement>('[data-seat]')
+    const target = [...seats].findIndex(el => {
+      const box = el.getBoundingClientRect()
+      return e.clientY >= box.top && e.clientY < box.bottom
+    })
+    if (target === -1 || target === dragged) return
+    moveTo(dragged, target)
+    setDragged(target)
+  }
+  const endDrag = () => setDragged(null)
+
   const applyPreset = (p: CompositionPreset) =>
     setRows(rs => p.roles.map((roleId, i) => ({ name: rs[i]?.name ?? '', roleId })))
 
@@ -148,11 +177,15 @@ export function Setup() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-1.5">
-        <span className="regie-label">Joueurs · {rows.length}</span>
+      <section ref={listRef} className="flex flex-col gap-1.5">
+        <span className="regie-label">Joueurs · {rows.length} · glisser le numéro pour changer de siège</span>
         {rows.map((r, i) => (
-          <div key={i} className="flex items-center gap-1.5 rounded-md bg-panel p-1.5">
-            <span className="w-7 text-center font-display text-sm font-bold text-muted">{i + 1}</span>
+          <div key={i} data-seat className={`flex items-center gap-1.5 rounded-md p-1.5 ${dragged === i ? 'bg-tile ring-2 ring-blood-go' : 'bg-panel'}`}>
+            <span aria-label={`Déplacer le siège ${i + 1}`} onPointerDown={e => startDrag(i, e)} onPointerMove={dragOver}
+              onPointerUp={endDrag} onPointerCancel={endDrag}
+              className={`flex h-11 w-10 shrink-0 touch-none select-none items-center justify-center font-display text-sm font-bold text-muted ${dragged === i ? 'cursor-grabbing' : 'cursor-grab'}`}>
+              <GripVertical size={14} />{i + 1}
+            </span>
             <input value={r.name} onChange={e => update(i, { name: e.target.value })} placeholder={`Joueur ${i + 1}`}
               aria-label={`Nom du joueur au siège ${i + 1}`} className="min-h-[44px] min-w-0 flex-1 rounded border border-rule bg-ink px-2 text-[16px]" />
             <select value={r.roleId} onChange={e => update(i, { roleId: e.target.value as RoleId })}

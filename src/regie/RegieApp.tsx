@@ -1,4 +1,4 @@
-import { Redo2, Undo2 } from 'lucide-react'
+import { Redo2, RotateCcw, Undo2 } from 'lucide-react'
 import { ReactNode, useEffect, useState } from 'react'
 import { describeEffects, hasEffects, isCueBehind, isCueDone, nextCue, SCREEN_LABELS, SFX_LABELS } from '../../shared/cues'
 import { StaffSnapshot } from '../../shared/protocol'
@@ -91,6 +91,7 @@ function Console({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioReady
         <Pill ok={snapshot.connected.public > 0} label="Écran" />
         <Pill ok={snapshot.lightStatus !== 'down'} label={snapshot.lightStatus === 'fake' ? 'Lumières simulées' : 'Lumières'} />
         <Pill ok={audioReady} label={show.audioOutput === 'public' ? 'Son TV' : 'Son régie'} />
+        {game.phase !== 'setup' && <ResetButton />}
       </header>
 
       <main className="flex flex-wrap items-start gap-3">
@@ -149,6 +150,23 @@ function Console({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioReady
         </aside>
       </main>
     </div>
+  )
+}
+
+/** Two clicks so a stray click mid-show cannot end the game; the reset stays undoable from the journal. */
+function ResetButton() {
+  const dispatch = useLive(s => s.dispatch)
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const timer = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(timer)
+  }, [armed])
+  return (
+    <button type="button" onClick={() => (armed ? dispatch({ type: 'RESET_GAME' }) : setArmed(true))}
+      className={`flex min-h-[36px] items-center gap-1.5 rounded-md px-3 text-[14px] font-semibold ${armed ? 'bg-blood-go text-[#FFF6EE]' : 'bg-tile'}`}>
+      <RotateCcw size={16} />{armed ? 'Confirmer : réinitialiser' : 'Nouvelle partie'}
+    </button>
   )
 }
 
