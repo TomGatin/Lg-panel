@@ -2,7 +2,7 @@ import type { IncomingMessage, Server } from 'node:http'
 import { WebSocket, WebSocketServer } from 'ws'
 import { buildCues } from '../shared/cues'
 import { projectPublic } from '../shared/project'
-import { ClientMessage, ClientRole, ServerMessage, StaffSnapshot, WS_PATH } from '../shared/protocol'
+import { AckedMessage, ClientMessage, ClientRole, ServerMessage, StaffSnapshot, WS_PATH } from '../shared/protocol'
 import { RuleError } from '../shared/reducer'
 import { Cue } from '../shared/types'
 import { LightPort } from './light'
@@ -16,6 +16,7 @@ interface Client {
   ws: WebSocket
   role: ClientRole
   alive: boolean
+  audioReady: boolean
 }
 
 export function isLoopback(address: string | undefined): boolean {
@@ -41,7 +42,7 @@ export class Hub {
     private readonly token: string,
     private readonly showFactory: (emit: (m: ServerMessage) => void) => ShowController
   ) {
-    this.show = this.showFactory(m => this.sendTo('regie', m))
+    this.show = this.showFactory(m => this.sendTo(this.show.state.audioOutput, m))
     this.light.onStatusChange(() => this.broadcast())
     this.refresh()
   }
@@ -77,7 +78,7 @@ export class Hub {
       ws.close(4001, 'token')
       return
     }
-    const client: Client = { ws, role, alive: true }
+    const client: Client = { ws, role, alive: true, audioReady: false }
     this.clients.add(client)
     ws.on('pong', () => { client.alive = true })
     ws.on('close', () => {
@@ -85,19 +86,24 @@ export class Hub {
       this.broadcast()
     })
     ws.on('message', raw => {
-      if (client.role === 'public') return
       let msg: ClientMessage
       try {
         msg = JSON.parse(raw.toString()) as ClientMessage
       } catch {
         return
       }
+      if (msg.t === 'audioReady') {
+        client.audioReady = msg.ready === true
+        this.broadcast()
+        return
+      }
+      if (client.role === 'public') return
       this.handle(client, msg)
     })
     this.broadcast()
   }
 
-  private handle(client: Client, msg: ClientMessage): void {
+  private handle(client: Client, msg: AckedMessage): void {
     const known = this.acks.get(msg.id)
     if (known) {
       this.send(client.ws, known)
@@ -158,7 +164,8 @@ export class Hub {
       canUndo: this.store.canUndo,
       canRedo: this.store.canRedo,
       lightStatus: this.light.status,
-      connected
+      connected,
+      publicAudio: [...this.clients].some(c => c.role === 'public' && c.audioReady)
     }
     const serverNow = Date.now()
     const staff: ServerMessage = { t: 'staff', version: this.version, serverNow, snapshot }

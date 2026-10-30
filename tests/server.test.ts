@@ -4,12 +4,14 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { buildCues, nextCue } from '../shared/cues'
 import { projectPublic } from '../shared/project'
-import { ShowState } from '../shared/types'
+import { SfxId, ShowState } from '../shared/types'
+import { FakeLight } from '../server/light'
+import { ShowController } from '../server/show'
 import { GameStore } from '../server/store'
 import { Game } from './helpers'
 
 const show = (screen: ShowState['screen']): ShowState =>
-  ({ firedCueIds: [], skippedCueIds: [], screen, ambience: 'none', autoKinds: [] })
+  ({ firedCueIds: [], skippedCueIds: [], screen, ambience: 'none', autoKinds: [], audioOutput: 'public', volumes: { master: 0.8, ambience: 0.5 } })
 
 describe('public projection', () => {
   it('never leaks living roles, lovers, infection or night targets', () => {
@@ -51,6 +53,28 @@ describe('cues', () => {
     expect(nextCue(cues, show('day'))?.kind).toBe('daybreak')
     const jumped = { ...show('reveal'), firedCueIds: ['d1-reveal'] }
     expect(nextCue(cues, jumped)?.kind).toBe('debate')
+  })
+
+  it('growls at dawn only when a wolf sits next to the tamer', () => {
+    const g = new Game(['loup_garou', 'montreur_ours', 'villageois', 'villageois', 'villageois'])
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(4) }).dawn()
+    expect(buildCues(g.state).find(c => c.kind === 'bear')?.effects.sfx).toBe('bear')
+    const calm = new Game(['loup_garou', 'villageois', 'montreur_ours', 'villageois', 'villageois'])
+    calm.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: calm.id(4) }).dawn()
+    expect(buildCues(calm.state).some(c => c.kind === 'bear')).toBe(false)
+  })
+
+  it('caws on the player the corbeau marked', () => {
+    const g = new Game(['loup_garou', 'corbeau', 'villageois', 'villageois', 'villageois'])
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'corbeauTargetId', playerId: g.id(4) }).dawn()
+    expect(buildCues(g.state).find(c => c.kind === 'crow')?.effects).toMatchObject({ sfx: 'crow', light: { seat: 4 } })
+  })
+
+  it('ends on the pack for a wolf win', () => {
+    const g = new Game(['loup_garou', 'villageois', 'villageois'])
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
+    expect(g.state.winner).toBe('loups')
+    expect(buildCues(g.state).find(c => c.kind === 'victory')?.effects.sfx).toBe('victory_wolves')
   })
 })
 
@@ -94,5 +118,25 @@ describe('store', () => {
     expect(reloaded.state).toEqual(store.state)
     expect(reloaded.canUndo).toBe(true)
     expect(readFileSync(file, 'utf8').split('\n').length).toBeGreaterThan(5)
+  })
+})
+
+describe('show sound', () => {
+  it('gives the screen its ambience and volumes only while it is the sound output', () => {
+    const g = new Game(['loup_garou', 'villageois', 'villageois'], ['Ana', 'Bea', 'Cid'])
+    const state: ShowState = { ...show('night'), ambience: 'night' }
+    expect(projectPublic(g.state, state).audio).toEqual({ ambience: 'night', volumes: { master: 0.8, ambience: 0.5 } })
+    expect(projectPublic(g.state, { ...state, audioOutput: 'regie' }).audio).toBeUndefined()
+  })
+
+  it('emits one-shot effects and clamps volumes', () => {
+    const played: SfxId[] = []
+    const ctl = new ShowController(undefined, new FakeLight(), sfx => played.push(sfx))
+    ctl.command({ kind: 'sfx', id: 'wolves' }, [])
+    ctl.command({ kind: 'volume', master: 3 }, [])
+    ctl.command({ kind: 'audioOutput', target: 'regie' }, [])
+    expect(played).toEqual(['wolves'])
+    expect(ctl.state.volumes).toEqual({ master: 1, ambience: 0.5 })
+    expect(ctl.state.audioOutput).toBe('regie')
   })
 })

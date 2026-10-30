@@ -5,8 +5,8 @@ Arbitrage en direct des *Loups-Garous de Thiercelieux* : un serveur fait autorit
 | Vue | Appareil | Rôle |
 |---|---|---|
 | `/mj` | téléphone du meneur | déroule la partie : rites de nuit, cartes, vote. Aucun bouton son ni lumière. |
-| `/regie` | PC relié aux enceintes et aux lumières | conduite de cues lancées avec **GO** (barre espace), son, lumière, écran public |
-| `/public` | projecteur | nuit, révélations du matin, débat, vote, victoire. Ne reçoit aucune information secrète. |
+| `/regie` | PC relié aux lumières | conduite de cues lancées avec **GO** (barre espace), son, lumière, écran public |
+| `/public` | TV reliée à la sono de la salle | nuit, révélations du matin, débat, vote, victoire. Joue le son du spectacle (sortie réglable dans la régie) : appuyer une fois sur OK de la télécommande pour l'activer. Ne reçoit aucune information secrète. |
 
 ## Lancer
 
@@ -32,7 +32,7 @@ Tout est dans `data/` (ignoré par git) :
 ## Personnaliser
 
 - **Cartes** : déposer les scans dans `public/cards/<roleId>.jpg` (ex. `public/cards/voyante.jpg`). Les identifiants sont listés dans `shared/roles.ts`. Sans scan, une carte gravée de remplacement s'affiche.
-- **Ambiances** : `public/audio/ambience-night.mp3` et `public/audio/ambience-day.mp3` remplacent les boucles par défaut, avec un fondu enchaîné.
+- **Sons** : `public/audio/<nom>.mp3`, noms listés dans `src/lib/audio.ts`. Garder le volume harmonisé (-16 LUFS pour les effets, -23 LUFS pour les ambiances) : le moteur ne corrige pas le volume fichier par fichier.
 - **light-engine** : les routes appelées sont isolées dans `server/light.ts` (`POST /api/scenes/:name`, `/api/target`, `/api/strobe`, `/api/blackout`, `GET /api/status`). Si l'API change, seul ce fichier est à modifier.
 
 ## Architecture

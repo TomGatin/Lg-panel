@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import { ClientMessage, ClientRole, ServerMessage, StaffSnapshot, WS_PATH } from '../../shared/protocol'
-import { AmbienceId, GameAction, PublicView, ShowCommand, SfxId } from '../../shared/types'
+import { AckedMessage as Acked, ClientRole, ServerMessage, StaffSnapshot, WS_PATH } from '../../shared/protocol'
+import { GameAction, PublicView, ShowCommand, SfxId } from '../../shared/types'
 
 type Status = 'connecting' | 'open' | 'closed' | 'denied'
-type Outgoing = ClientMessage extends infer M ? (M extends ClientMessage ? Omit<M, 'id'> : never) : never
+type Outgoing = Acked extends infer M ? (M extends Acked ? Omit<M, 'id'> : never) : never
 
 interface LiveState {
   role: ClientRole
@@ -23,17 +23,18 @@ interface LiveState {
   clearError: () => void
 }
 
-type AudioListener = (event: { sfx?: SfxId; ambience?: AmbienceId }) => void
+type AudioListener = (sfx: SfxId | null) => void
 type AckListener = (ok: boolean) => void
 
 const TOKEN_KEY = 'lg-token'
-const outbox = new Map<string, ClientMessage>()
+const outbox = new Map<string, Acked>()
 const audioListeners = new Set<AudioListener>()
 const ackListeners = new Set<AckListener>()
 let socket: WebSocket | null = null
 let retryDelay = 500
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 let errorTimer: ReturnType<typeof setTimeout> | undefined
+let audioReady = false
 
 function readToken(): string | null {
   const fromUrl = new URLSearchParams(location.search).get('k')
@@ -49,7 +50,7 @@ const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).sli
 
 export const useLive = create<LiveState>()(set => {
   const send = (msg: Outgoing) => {
-    const full = { ...msg, id: newId() } as ClientMessage
+    const full = { ...msg, id: newId() } as Acked
     outbox.set(full.id, full)
     set({ pending: outbox.size })
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(full))
@@ -86,7 +87,7 @@ function handle(msg: ServerMessage): void {
       }
       return
     case 'audio':
-      audioListeners.forEach(l => l(msg))
+      audioListeners.forEach(l => l(msg.sfx))
       return
     case 'denied':
       useLive.setState({ status: 'denied', deniedReason: msg.reason })
@@ -109,6 +110,7 @@ function open(): void {
     useLive.setState({ status: 'open' })
     // Anything sent while offline goes out now; the server ignores ids it already applied.
     for (const msg of outbox.values()) ws.send(JSON.stringify(msg))
+    if (audioReady) ws.send(JSON.stringify({ t: 'audioReady', ready: true }))
   }
   ws.onmessage = e => handle(JSON.parse(String(e.data)) as ServerMessage)
   ws.onclose = () => {
@@ -140,6 +142,12 @@ export function connect(role: ClientRole): void {
 export function onAudio(listener: AudioListener): () => void {
   audioListeners.add(listener)
   return () => audioListeners.delete(listener)
+}
+
+export function reportAudioReady(ready: boolean): void {
+  if (audioReady === ready) return
+  audioReady = ready
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ t: 'audioReady', ready }))
 }
 
 export function onAck(listener: AckListener): () => void {

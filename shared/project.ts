@@ -27,6 +27,7 @@ export function projectPublic(game: GameState, show: ShowState): PublicView {
       return p && !p.isAlive ? [{ name: p.name, roleId: p.roleId, roleName: ROLES[p.roleId].name }] : []
     }),
     deathMoment: game.cycle === 'day' && game.lastDeathIds.some(id => !game.dawnDeathIds.includes(id)) ? 'day' : 'dawn',
-    victory: victory ? { title: victory.title, description: victory.description } : undefined
+    victory: victory ? { title: victory.title, description: victory.description } : undefined,
+    audio: show.audioOutput === 'public' ? { ambience: show.ambience, volumes: { ...show.volumes } } : undefined
   }
 }

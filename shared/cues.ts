@@ -1,5 +1,5 @@
-import { getNightSteps, NightStepId } from './rules'
-import { Cue, CueEffects, GameState, ShowState } from './types'
+import { getBearGrowlStatus, getNightSteps, NightStepId } from './rules'
+import { Cue, CueEffects, GameState, ShowState, SfxId, Winner } from './types'
 
 const STEP_EFFECTS: Partial<Record<NightStepId, CueEffects>> = {
   salvateur: { light: { kind: 'scene', name: 'salvateur' } },
@@ -7,7 +7,7 @@ const STEP_EFFECTS: Partial<Record<NightStepId, CueEffects>> = {
   loups_garous: { sfx: 'wolves', light: { kind: 'scene', name: 'loups' } },
   grand_mechant_loup: { light: { kind: 'scene', name: 'loups' } },
   loup_blanc: { light: { kind: 'scene', name: 'loup_blanc' } },
-  sorciere: { light: { kind: 'scene', name: 'sorciere' } },
+  sorciere: { sfx: 'witch', light: { kind: 'scene', name: 'sorciere' } },
   joueur_de_flute: { sfx: 'flute', light: { kind: 'scene', name: 'flute' } }
 }
 
@@ -46,10 +46,21 @@ export function buildCues(game: GameState): Cue[] {
         sfx: game.dawnDeathIds.length > 0 ? 'bell' : undefined,
         light: firstDeathSeat !== undefined ? { kind: 'target', seat: firstDeathSeat, color: TARGET_COLOR } : undefined
       } })
+    const bear = getBearGrowlStatus(game.players)
+    if (bear?.growls && bear.bear && !game.villagePowersDisabled) {
+      cues.push({ id: `d${n}-bear`, kind: 'bear', title: 'L\'ours grogne', ready: true,
+        effects: { sfx: 'bear', light: { kind: 'target', seat: bear.bear.seatNumber, color: HUNTER_COLOR } } })
+    }
+    const accusedId = Object.keys(game.vote.corbeauBonus)[0]
+    if (accusedId) {
+      const seat = seatOf(accusedId)
+      cues.push({ id: `d${n}-crow`, kind: 'crow', title: 'Le Corbeau a désigné', ready: true,
+        effects: { sfx: 'crow', light: seat !== undefined ? { kind: 'target', seat, color: TARGET_COLOR } : undefined } })
+    }
     if (game.pendingHunterShotPlayerId) {
       const seat = seatOf(game.pendingHunterShotPlayerId)
       cues.push({ id: `hunter-${game.pendingHunterShotPlayerId}`, kind: 'hunter', title: 'Le Chasseur se lève', ready: true,
-        effects: { sfx: 'drum', light: seat !== undefined ? { kind: 'target', seat, color: HUNTER_COLOR } : undefined } })
+        effects: { light: seat !== undefined ? { kind: 'target', seat, color: HUNTER_COLOR } : undefined } })
     }
     cues.push({ id: `d${n}-debate`, kind: 'debate', title: 'Débat', ready: true, effects: { screen: 'debate' } })
     cues.push({ id: `d${n}-vote`, kind: 'vote', title: 'Vote du village', ready: game.vote.accusedIds.length > 0,
@@ -66,9 +77,14 @@ export function buildCues(game: GameState): Cue[] {
 
   if (game.phase === 'game_over') {
     cues.push({ id: 'victory', kind: 'victory', title: 'Fin de partie', ready: true,
-      effects: { screen: 'victory', ambience: 'none', light: { kind: 'scene', name: 'victory' }, sfx: 'bell' } })
+      effects: { screen: 'victory', ambience: 'none', light: { kind: 'scene', name: 'victory' }, sfx: victorySfx(game.winner) } })
   }
   return cues
+}
+
+// Wolves howl over their own wins; every other camp gets the village bells.
+function victorySfx(winner: Winner | undefined): SfxId {
+  return winner === 'loups' || winner === 'loup_blanc' ? 'victory_wolves' : 'victory_village'
 }
 
 export function hasEffects(cue: Cue): boolean {
@@ -118,13 +134,15 @@ export function describeLight(l: NonNullable<CueEffects['light']>): string {
 
 export const SFX_LABELS: Record<NonNullable<CueEffects['sfx']>, string> = {
   wolves: 'Hurlement',
-  bear: 'Ours',
   rooster: 'Coq',
-  swoosh: 'Souffle',
-  gunshot: 'Coup de feu',
   bell: 'Glas',
+  gunshot: 'Coup de feu',
+  witch: 'Sorcière',
   flute: 'Flûte',
-  drum: 'Tambour'
+  bear: 'Ours',
+  crow: 'Corbeau',
+  victory_village: 'Cloches',
+  victory_wolves: 'Meute'
 }
 
 export const SCREEN_LABELS: Record<NonNullable<CueEffects['screen']>, string> = {

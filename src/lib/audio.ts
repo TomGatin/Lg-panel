@@ -1,27 +1,37 @@
 import { AmbienceId, SfxId } from '../../shared/types'
 
-// Optional higher quality loops dropped in public/audio/ win over the bundled samples.
-const AMBIENCE_SOURCES: Record<Exclude<AmbienceId, 'none'>, string[]> = {
-  night: ['/audio/ambience-night.mp3', '/night.wav'],
-  day: ['/audio/ambience-day.mp3']
+// Every file in public/audio/ is loudness-matched (-16 LUFS effects, -23 LUFS ambiences): no per-file gain.
+const AMBIENCE_FILES: Record<Exclude<AmbienceId, 'none'>, string> = {
+  night: '/audio/ambience-night.mp3',
+  day: '/audio/ambience-day.mp3'
 }
 
-const SFX_FILES: Partial<Record<SfxId, { url: string; gain: number }>> = {
-  wolves: { url: '/wolves.wav', gain: 0.9 },
-  bear: { url: '/bear.wav', gain: 1 },
-  rooster: { url: '/morning.wav', gain: 0.8 },
-  swoosh: { url: '/swoosh.wav', gain: 0.8 }
+const SFX_FILES: Record<SfxId, string> = {
+  wolves: '/audio/wolves.mp3',
+  rooster: '/audio/rooster.mp3',
+  bell: '/audio/bell.mp3',
+  gunshot: '/audio/gunshot.mp3',
+  witch: '/audio/witch.mp3',
+  flute: '/audio/flute.mp3',
+  bear: '/audio/bear.mp3',
+  crow: '/audio/crow.mp3',
+  victory_village: '/audio/victory-village.mp3',
+  victory_wolves: '/audio/victory-wolves.mp3'
 }
 
 const FADE_SECONDS = 2.5
 
-/** Sound engine of the régie PC: one-shot effects plus a looping ambience that crossfades day/night. */
+/** Sound engine of whichever device feeds the speakers: one-shot effects plus a looping ambience that crossfades day/night. */
 export class AudioEngine {
   private ctx: AudioContext | null = null
   private master: GainNode | null = null
   private ambienceBus: GainNode | null = null
   private buffers = new Map<string, Promise<AudioBuffer | null>>()
   private loop: { source: AudioBufferSourceNode; gain: GainNode; id: AmbienceId } | null = null
+  private effects = new Set<{ source: AudioBufferSourceNode; gain: GainNode }>()
+  // Last ambience asked for: a slow load must not start a loop that was replaced meanwhile.
+  private wanted: AmbienceId = 'none'
+  private listeners = new Set<() => void>()
 
   get unlocked(): boolean {
     return this.ctx?.state === 'running'
@@ -36,8 +46,17 @@ export class AudioEngine {
       this.ambienceBus = this.ctx.createGain()
       this.ambienceBus.gain.value = 0.5
       this.ambienceBus.connect(this.master)
+      this.ctx.onstatechange = () => this.listeners.forEach(l => l())
+      // Decoded ahead so the first press of each effect plays at once instead of after a download.
+      for (const url of Object.values(SFX_FILES)) void this.load(url)
     }
     await this.ctx.resume()
+  }
+
+  /** Called when the browser starts or suspends the audio output. */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
   }
 
   setMasterVolume(v: number): void {
@@ -52,28 +71,36 @@ export class AudioEngine {
     const ctx = this.ctx
     const out = this.master
     if (!ctx || !out) return
-    const file = SFX_FILES[id]
-    if (file) {
-      const buffer = await this.load(file.url)
-      if (!buffer) return
-      const source = ctx.createBufferSource()
-      const gain = ctx.createGain()
-      source.buffer = buffer
-      gain.gain.value = file.gain
-      source.connect(gain).connect(out)
-      source.start()
-      return
+    const buffer = await this.load(SFX_FILES[id])
+    if (!buffer) return
+    const source = ctx.createBufferSource()
+    const gain = ctx.createGain()
+    source.buffer = buffer
+    source.connect(gain).connect(out)
+    const effect = { source, gain }
+    this.effects.add(effect)
+    source.onended = () => this.effects.delete(effect)
+    source.start()
+  }
+
+  /** Cuts every effect still playing, with a short fade so it does not click. The ambience keeps going. */
+  stopSfx(): void {
+    const ctx = this.ctx
+    if (!ctx) return
+    const now = ctx.currentTime
+    for (const { source, gain } of this.effects) {
+      gain.gain.setValueAtTime(gain.gain.value, now)
+      gain.gain.linearRampToValueAtTime(0, now + 0.05)
+      source.stop(now + 0.05)
     }
-    if (id === 'gunshot') this.gunshot(ctx, out)
-    else if (id === 'bell') this.bell(ctx, out)
-    else if (id === 'flute') this.flute(ctx, out)
-    else if (id === 'drum') this.drum(ctx, out)
+    this.effects.clear()
   }
 
   async setAmbience(id: AmbienceId): Promise<void> {
     const ctx = this.ctx
     const bus = this.ambienceBus
-    if (!ctx || !bus || this.loop?.id === id) return
+    if (!ctx || !bus || this.wanted === id) return
+    this.wanted = id
     const now = ctx.currentTime
     const old = this.loop
     if (old) {
@@ -83,12 +110,8 @@ export class AudioEngine {
       this.loop = null
     }
     if (id === 'none') return
-    let buffer: AudioBuffer | null = null
-    for (const url of AMBIENCE_SOURCES[id]) {
-      buffer = await this.load(url)
-      if (buffer) break
-    }
-    if (!buffer) return
+    const buffer = await this.load(AMBIENCE_FILES[id])
+    if (!buffer || this.wanted !== id) return
     const source = ctx.createBufferSource()
     const gain = ctx.createGain()
     source.buffer = buffer
@@ -106,103 +129,17 @@ export class AudioEngine {
     let pending = this.buffers.get(url)
     if (!pending) {
       pending = fetch(url)
-        .then(res => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(String(res.status)))))
+        .then(res => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(`HTTP ${res.status}`))))
         .then(data => ctx.decodeAudioData(data))
-        .catch(() => null)
+        .catch((err: unknown) => {
+          // Not cached: a file fixed or added while the show runs plays on the next press.
+          console.warn(`[audio] ${url} illisible :`, err)
+          this.buffers.delete(url)
+          return null
+        })
       this.buffers.set(url, pending)
     }
     return pending
-  }
-
-  private noise(ctx: AudioContext, seconds: number): AudioBufferSourceNode {
-    const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * seconds), ctx.sampleRate)
-    const data = buffer.getChannelData(0)
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
-    const source = ctx.createBufferSource()
-    source.buffer = buffer
-    return source
-  }
-
-  private gunshot(ctx: AudioContext, out: AudioNode): void {
-    const now = ctx.currentTime
-    const noise = this.noise(ctx, 1.2)
-    const filter = ctx.createBiquadFilter()
-    filter.type = 'lowpass'
-    filter.frequency.setValueAtTime(2400, now)
-    filter.frequency.exponentialRampToValueAtTime(300, now + 0.8)
-    const gain = ctx.createGain()
-    gain.gain.setValueAtTime(0.6, now)
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9)
-    const punch = ctx.createOscillator()
-    const punchGain = ctx.createGain()
-    punch.frequency.setValueAtTime(150, now)
-    punch.frequency.exponentialRampToValueAtTime(35, now + 0.3)
-    punchGain.gain.setValueAtTime(0.4, now)
-    punchGain.gain.exponentialRampToValueAtTime(0.001, now + 0.35)
-    noise.connect(filter).connect(gain).connect(out)
-    punch.connect(punchGain).connect(out)
-    noise.start(now)
-    punch.start(now)
-    noise.stop(now + 1)
-    punch.stop(now + 0.4)
-  }
-
-  // Church bell: inharmonic partials with long decays, struck three times.
-  private bell(ctx: AudioContext, out: AudioNode): void {
-    const partials = [[0.5, 0.25], [1, 0.35], [1.19, 0.15], [1.5, 0.12], [2, 0.1], [2.74, 0.06]]
-    for (let strike = 0; strike < 3; strike++) {
-      const t = ctx.currentTime + strike * 2.2
-      for (const [ratio, level] of partials) {
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.frequency.value = 220 * ratio
-        gain.gain.setValueAtTime(0.0001, t)
-        gain.gain.exponentialRampToValueAtTime(level, t + 0.01)
-        gain.gain.exponentialRampToValueAtTime(0.0001, t + 4 / ratio + 1)
-        osc.connect(gain).connect(out)
-        osc.start(t)
-        osc.stop(t + 5.5)
-      }
-    }
-  }
-
-  private flute(ctx: AudioContext, out: AudioNode): void {
-    const now = ctx.currentTime
-    const notes = [[440, 0, 0.4], [523.25, 0.35, 0.4], [587.33, 0.7, 0.45], [659.25, 1.1, 0.5], [783.99, 1.55, 0.7], [587.33, 2.2, 1.2]]
-    for (const [freq, start, dur] of notes) {
-      const osc = ctx.createOscillator()
-      const vibrato = ctx.createOscillator()
-      const depth = ctx.createGain()
-      const gain = ctx.createGain()
-      osc.frequency.setValueAtTime(freq, now + start)
-      vibrato.frequency.value = 5
-      depth.gain.value = 4.5
-      vibrato.connect(depth).connect(osc.frequency)
-      gain.gain.setValueAtTime(0.001, now + start)
-      gain.gain.linearRampToValueAtTime(0.2, now + start + 0.08)
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur)
-      osc.connect(gain).connect(out)
-      vibrato.start(now + start)
-      osc.start(now + start)
-      vibrato.stop(now + start + dur)
-      osc.stop(now + start + dur)
-    }
-  }
-
-  // Slow war-drum roll for the hunter's last stand.
-  private drum(ctx: AudioContext, out: AudioNode): void {
-    for (let i = 0; i < 6; i++) {
-      const t = ctx.currentTime + i * 0.45
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.frequency.setValueAtTime(110, t)
-      osc.frequency.exponentialRampToValueAtTime(45, t + 0.25)
-      gain.gain.setValueAtTime(0.7, t)
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4)
-      osc.connect(gain).connect(out)
-      osc.start(t)
-      osc.stop(t + 0.45)
-    }
   }
 }
 

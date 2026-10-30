@@ -187,7 +187,7 @@ export interface ActionContext {
 // --- Show (régie) -----------------------------------------------------------
 
 export type ScreenView = 'night' | 'day' | 'reveal' | 'debate' | 'vote' | 'victory' | 'blackout'
-export type SfxId = 'wolves' | 'bear' | 'rooster' | 'swoosh' | 'gunshot' | 'bell' | 'flute' | 'drum'
+export type SfxId = 'wolves' | 'rooster' | 'bell' | 'gunshot' | 'witch' | 'flute' | 'bear' | 'crow' | 'victory_village' | 'victory_wolves'
 export type AmbienceId = 'night' | 'day' | 'none'
 
 export type LightCommand =
@@ -204,7 +204,7 @@ export interface CueEffects {
   screen?: ScreenView
 }
 
-export type CueKind = 'nightfall' | 'night_step' | 'daybreak' | 'reveal' | 'debate' | 'vote' | 'death' | 'hunter' | 'victory'
+export type CueKind = 'nightfall' | 'night_step' | 'daybreak' | 'reveal' | 'bear' | 'crow' | 'debate' | 'vote' | 'death' | 'hunter' | 'victory'
 
 export interface Cue {
   id: string
@@ -221,12 +221,26 @@ export interface Cue {
 
 export type LightStatus = 'ok' | 'down' | 'fake'
 
+export type AudioOutput = 'public' | 'regie'
+
+export interface Volumes {
+  master: number
+  ambience: number
+}
+
+export interface ShowAudio {
+  ambience: AmbienceId
+  volumes: Volumes
+}
+
 export interface ShowState {
   firedCueIds: string[]
   skippedCueIds: string[]
   screen: ScreenView
   ambience: AmbienceId
   autoKinds: CueKind[]
+  audioOutput: AudioOutput
+  volumes: Volumes
 }
 
 export type ShowCommand =
@@ -235,9 +249,12 @@ export type ShowCommand =
   | { kind: 'skip'; cueId: string }
   | { kind: 'screen'; view: ScreenView }
   | { kind: 'sfx'; id: SfxId }
+  | { kind: 'stopSfx' }
   | { kind: 'ambience'; id: AmbienceId }
   | { kind: 'light'; command: LightCommand }
   | { kind: 'auto'; cueKind: CueKind; on: boolean }
+  | { kind: 'audioOutput'; target: AudioOutput }
+  | { kind: 'volume'; master?: number; ambience?: number }
 
 // --- Projections --------------------------------------------------------------
 
@@ -260,6 +277,8 @@ export interface PublicView {
   /** Whether lastDeaths is the morning announcement or a death during the day (vote, hunter). */
   deathMoment: 'dawn' | 'day'
   victory?: { title: string; description: string }
+  /** Set only while the sound goes out through this screen. */
+  audio?: ShowAudio
 }
 
 export interface CompositionPreset {

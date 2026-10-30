@@ -1,4 +1,4 @@
-import { AmbienceId, Cue, GameAction, GameState, LightStatus, PublicView, ShowCommand, ShowState, SfxId } from './types'
+import { Cue, GameAction, GameState, LightStatus, PublicView, ShowCommand, ShowState, SfxId } from './types'
 
 export type ClientRole = 'mj' | 'regie' | 'public'
 
@@ -7,6 +7,9 @@ export type ClientMessage =
   | { t: 'undo'; id: string }
   | { t: 'redo'; id: string }
   | { t: 'show'; id: string; command: ShowCommand }
+  | { t: 'audioReady'; ready: boolean }
+
+export type AckedMessage = Exclude<ClientMessage, { t: 'audioReady' }>
 
 export interface StaffSnapshot {
   game: GameState
@@ -16,6 +19,7 @@ export interface StaffSnapshot {
   canRedo: boolean
   lightStatus: LightStatus
   connected: Record<ClientRole, number>
+  publicAudio: boolean
 }
 
 export type ServerMessage =
@@ -24,8 +28,7 @@ export type ServerMessage =
   | { t: 'public'; version: number; serverNow: number; view: PublicView }
   | { t: 'ack'; id: string; ok: true }
   | { t: 'ack'; id: string; ok: false; error: string }
-  /** Sound to play on the régie's speakers. */
-  | { t: 'audio'; sfx?: SfxId; ambience?: AmbienceId }
+  | { t: 'audio'; sfx: SfxId | null }
   | { t: 'denied'; reason: string }
 
 export const WS_PATH = '/ws'

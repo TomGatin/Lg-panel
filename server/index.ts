@@ -63,7 +63,7 @@ const members = new LnbMembers(join(DATA_DIR, 'lnb.json'))
 const light: LightPort = process.env.LIGHT_ENGINE_URL ? new HttpLight(process.env.LIGHT_ENGINE_URL) : new FakeLight()
 const store = new GameStore(join(DATA_DIR, 'session.jsonl'))
 const hub = new Hub(store, light, token,
-  emit => new ShowController(join(DATA_DIR, 'show.json'), light, audio => emit({ t: 'audio', ...audio })))
+  emit => new ShowController(join(DATA_DIR, 'show.json'), light, sfx => emit({ t: 'audio', sfx })))
 
 const app = new Hono<{ Bindings: HttpBindings }>()
 const trusted = (c: { env: HttpBindings; req: { query: (k: string) => string | undefined } }) =>

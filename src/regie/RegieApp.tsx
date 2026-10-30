@@ -3,16 +3,15 @@ import { ReactNode, useEffect, useState } from 'react'
 import { describeEffects, hasEffects, isCueBehind, isCueDone, nextCue, SCREEN_LABELS, SFX_LABELS } from '../../shared/cues'
 import { StaffSnapshot } from '../../shared/protocol'
 import { getCurrentNightStep } from '../../shared/rules'
-import { AmbienceId, Cue, LightCommand, ScreenView, SfxId } from '../../shared/types'
-import { audioEngine } from '../lib/audio'
-import { onAudio, useLive } from '../lib/live'
+import { AmbienceId, AudioOutput, Cue, LightCommand, ScreenView, SfxId, Volumes } from '../../shared/types'
+import { useLive } from '../lib/live'
+import { useShowAudio } from '../lib/useShowAudio'
 import { Setup } from '../setup/Setup'
 import { DeniedScreen, ErrorToast, Loading } from '../ui/Feedback'
 import { RoomPlan } from './RoomPlan'
 
-const VOLUME_KEY = 'lg-regie-volumes'
 const SCREENS: ScreenView[] = ['night', 'day', 'reveal', 'debate', 'vote', 'victory', 'blackout']
-const PADS: SfxId[] = ['wolves', 'bell', 'gunshot', 'rooster', 'bear', 'swoosh', 'drum', 'flute']
+const PADS: SfxId[] = ['wolves', 'bell', 'gunshot', 'witch', 'rooster', 'bear', 'crow', 'flute']
 
 function Panel({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
   return (
@@ -34,46 +33,24 @@ function Pill({ ok, label }: { ok: boolean; label: string }) {
   )
 }
 
-function loadVolumes(): { master: number; ambience: number } {
-  try {
-    const raw = localStorage.getItem(VOLUME_KEY)
-    if (raw) return JSON.parse(raw) as { master: number; ambience: number }
-  } catch {
-    // Defaults below.
-  }
-  return { master: 0.8, ambience: 0.5 }
-}
-
 export function RegieApp() {
   const status = useLive(s => s.status)
   const snapshot = useLive(s => s.staff)
-  const [audioReady, setAudioReady] = useState(audioEngine.unlocked)
-
-  useEffect(() => onAudio(e => {
-    if (e.sfx) void audioEngine.playSfx(e.sfx)
-    if (e.ambience) void audioEngine.setAmbience(e.ambience)
-  }), [])
+  const show = snapshot?.show
+  const local = show?.audioOutput === 'regie'
+  const audio = useShowAudio(show && local ? { ambience: show.ambience, volumes: show.volumes } : undefined)
 
   if (status === 'denied') return <DeniedScreen />
   if (!snapshot) return <Loading />
   return (
     <div className="min-h-screen bg-ink font-sans text-bone">
-      {!audioReady && (
-        <button type="button"
-          onClick={() => {
-            void audioEngine.unlock().then(() => {
-              const v = loadVolumes()
-              audioEngine.setMasterVolume(v.master)
-              audioEngine.setAmbienceVolume(v.ambience)
-              if (snapshot.show.ambience !== 'none') void audioEngine.setAmbience(snapshot.show.ambience)
-              setAudioReady(true)
-            })
-          }}
+      {local && !audio.ready && (
+        <button type="button" onClick={() => void audio.unlock()}
           className="flex w-full items-center justify-center gap-2 bg-blood-go py-3 text-[15px] font-bold text-[#FFF6EE]">
           Cliquer ici pour activer le son de la régie
         </button>
       )}
-      <Console snapshot={snapshot} audioReady={audioReady} />
+      <Console snapshot={snapshot} audioReady={local ? audio.ready : snapshot.publicAudio} />
       <ErrorToast />
     </div>
   )
@@ -113,7 +90,7 @@ function Console({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioReady
         <Pill ok={snapshot.connected.mj > 0} label="MJ" />
         <Pill ok={snapshot.connected.public > 0} label="Écran" />
         <Pill ok={snapshot.lightStatus !== 'down'} label={snapshot.lightStatus === 'fake' ? 'Lumières simulées' : 'Lumières'} />
-        <Pill ok={audioReady} label="Son" />
+        <Pill ok={audioReady} label={show.audioOutput === 'public' ? 'Son TV' : 'Son régie'} />
       </header>
 
       <main className="flex flex-wrap items-start gap-3">
@@ -159,7 +136,7 @@ function Console({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioReady
             <RoomPlan players={game.players} targetSeat={targetSeat}
               onTarget={seat => { setTargetSeat(seat); light({ kind: 'target', seat, color: 'red' }) }} />
           </Panel>
-          <SoundPanel ambience={show.ambience} onAmbience={id => send({ kind: 'ambience', id })} onSfx={id => send({ kind: 'sfx', id })} />
+          <SoundPanel ambience={show.ambience} output={show.audioOutput} volumes={show.volumes} />
           <Panel title="Lumière">
             <div className="grid grid-cols-4 gap-1.5">
               <button type="button" onClick={() => light({ kind: 'blackout' })} className="min-h-[52px] rounded-md bg-bone text-[15px] font-bold text-ink">Blackout</button>
@@ -231,30 +208,33 @@ function CueList({ cues, snapshot }: { cues: Cue[]; snapshot: StaffSnapshot }) {
   )
 }
 
-function SoundPanel({ ambience, onAmbience, onSfx }: { ambience: AmbienceId; onAmbience: (id: AmbienceId) => void; onSfx: (id: SfxId) => void }) {
-  const [volumes, setVolumes] = useState(loadVolumes)
-  const setVolume = (key: 'master' | 'ambience', value: number) => {
-    const next = { ...volumes, [key]: value }
-    setVolumes(next)
-    if (key === 'master') audioEngine.setMasterVolume(value)
-    else audioEngine.setAmbienceVolume(value)
-    try {
-      localStorage.setItem(VOLUME_KEY, JSON.stringify(next))
-    } catch {
-      // Volumes simply reset on reload.
-    }
+function SoundPanel({ ambience, output, volumes }: { ambience: AmbienceId; output: AudioOutput; volumes: Volumes }) {
+  const send = useLive(s => s.show)
+  const [draft, setDraft] = useState(volumes)
+  useEffect(() => setDraft(volumes), [volumes.master, volumes.ambience])
+  const setVolume = (key: keyof Volumes, value: number) => {
+    setDraft(v => ({ ...v, [key]: value }))
+    send({ kind: 'volume', [key]: value })
   }
   return (
     <Panel title="Son">
+      <div className="grid grid-cols-2 gap-1.5">
+        {(['public', 'regie'] as const).map(target => (
+          <button key={target} type="button" onClick={() => send({ kind: 'audioOutput', target })}
+            className={`min-h-[44px] rounded-md text-[14px] font-semibold ${output === target ? 'bg-bone text-ink' : 'bg-tile'}`}>
+            {target === 'public' ? 'Sortie : écran TV' : 'Sortie : PC régie'}
+          </button>
+        ))}
+      </div>
       <label className="flex flex-col gap-1 text-[14px] text-bone-dim">Général
-        <input type="range" min={0} max={1} step={0.01} value={volumes.master} onChange={e => setVolume('master', Number(e.target.value))} className="accent-blood-go" />
+        <input type="range" min={0} max={1} step={0.01} value={draft.master} onChange={e => setVolume('master', Number(e.target.value))} className="accent-blood-go" />
       </label>
       <label className="flex flex-col gap-1 text-[14px] text-bone-dim">Ambiance
-        <input type="range" min={0} max={1} step={0.01} value={volumes.ambience} onChange={e => setVolume('ambience', Number(e.target.value))} className="accent-blood-go" />
+        <input type="range" min={0} max={1} step={0.01} value={draft.ambience} onChange={e => setVolume('ambience', Number(e.target.value))} className="accent-blood-go" />
       </label>
       <div className="grid grid-cols-3 gap-1.5">
         {(['night', 'day', 'none'] as const).map(id => (
-          <button key={id} type="button" onClick={() => onAmbience(id)}
+          <button key={id} type="button" onClick={() => send({ kind: 'ambience', id })}
             className={`min-h-[44px] rounded-md text-[14px] font-semibold ${ambience === id ? 'bg-bone text-ink' : 'bg-tile'}`}>
             {id === 'night' ? 'Ambiance nuit' : id === 'day' ? 'Ambiance jour' : 'Silence'}
           </button>
@@ -262,9 +242,11 @@ function SoundPanel({ ambience, onAmbience, onSfx }: { ambience: AmbienceId; onA
       </div>
       <div className="grid grid-cols-4 gap-1.5">
         {PADS.map(id => (
-          <button key={id} type="button" onClick={() => onSfx(id)} className="min-h-[52px] rounded-md bg-tile text-[15px] font-semibold active:bg-rule">{SFX_LABELS[id]}</button>
+          <button key={id} type="button" onClick={() => send({ kind: 'sfx', id })} className="min-h-[52px] rounded-md bg-tile text-[15px] font-semibold active:bg-rule">{SFX_LABELS[id]}</button>
         ))}
       </div>
+      <button type="button" onClick={() => send({ kind: 'stopSfx' })}
+        className="min-h-[52px] rounded-md bg-blood-go text-[15px] font-bold text-[#FFF6EE] active:opacity-80">Couper les effets</button>
     </Panel>
   )
 }

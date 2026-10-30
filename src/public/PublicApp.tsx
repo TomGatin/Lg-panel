@@ -1,7 +1,8 @@
 import { ReactNode, useEffect } from 'react'
 import { PublicView } from '../../shared/types'
-import { useLive } from '../lib/live'
+import { reportAudioReady, useLive } from '../lib/live'
 import { formatClock, useRemaining } from '../lib/timer'
+import { useShowAudio } from '../lib/useShowAudio'
 import { Loading } from '../ui/Feedback'
 import { useWakeLock } from '../ui/useWakeLock'
 
@@ -159,20 +160,32 @@ function enterFullscreen() {
 
 export function PublicApp() {
   const view = useLive(s => s.view)
+  const audio = useShowAudio(view?.audio)
+  const { unlock } = audio
   useWakeLock()
-  // A remote's OK button sends Enter; there is no double-click on a TV.
+  useEffect(() => reportAudioReady(audio.ready), [audio.ready])
+  useEffect(() => { void unlock() }, [])
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Enter' || e.keyCode === 13) enterFullscreen() }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.keyCode !== 13) return
+      enterFullscreen()
+      void unlock()
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   if (!view) return <Loading label="Connexion à la partie…" />
   return (
-    // fixed + full size instead of 100dvh, which older TV Chromium ignores.
-    <div className="fixed left-0 top-0 h-full w-full cursor-none overflow-hidden bg-ink text-bone" onClick={enterFullscreen}>
+    <div className="fixed left-0 top-0 h-full w-full cursor-none overflow-hidden bg-ink text-bone"
+      onClick={() => { enterFullscreen(); void unlock() }}>
       <div key={`${view.screen}-${view.roundNumber}-${view.cycle}`} className="h-full animate-[fadein_1.2s_ease-out]">
         <Screen view={view} />
       </div>
+      {view.audio && !audio.ready && (
+        <span className="absolute bottom-[3vmin] right-[4vmin] font-display text-[2vmin] uppercase tracking-[0.2em] text-faint">
+          Appuyez sur OK pour activer le son
+        </span>
+      )}
     </div>
   )
 }

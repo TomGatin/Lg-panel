@@ -1,17 +1,22 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { hasEffects, nextCue } from '../shared/cues'
-import { AmbienceId, Cue, CueEffects, ShowCommand, ShowState, SfxId } from '../shared/types'
+import { Cue, CueEffects, ShowCommand, ShowState, SfxId } from '../shared/types'
 import { LightPort } from './light'
 
-export type AudioEmitter = (event: { sfx?: SfxId; ambience?: AmbienceId }) => void
+/** An effect to play, or null to cut every effect still playing. */
+export type AudioEmitter = (sfx: SfxId | null) => void
 
 const initialShow = (): ShowState => ({
   firedCueIds: [],
   skippedCueIds: [],
   screen: 'blackout',
   ambience: 'none',
-  autoKinds: []
+  autoKinds: [],
+  audioOutput: 'public',
+  volumes: { master: 0.8, ambience: 0.5 }
 })
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
 
 /**
  * Régie side of the show: what the projector displays, which cues were played,
@@ -56,11 +61,13 @@ export class ShowController {
         this.current.screen = cmd.view
         break
       case 'sfx':
-        this.emitAudio({ sfx: cmd.id })
+        this.emitAudio(cmd.id)
+        break
+      case 'stopSfx':
+        this.emitAudio(null)
         break
       case 'ambience':
         this.current.ambience = cmd.id
-        this.emitAudio({ ambience: cmd.id })
         break
       case 'light':
         void this.light.send(cmd.command)
@@ -69,6 +76,15 @@ export class ShowController {
         this.current.autoKinds = cmd.on
           ? [...new Set([...this.current.autoKinds, cmd.cueKind])]
           : this.current.autoKinds.filter(k => k !== cmd.cueKind)
+        break
+      case 'audioOutput':
+        this.current.audioOutput = cmd.target
+        break
+      case 'volume':
+        this.current.volumes = {
+          master: cmd.master === undefined ? this.current.volumes.master : clamp01(cmd.master),
+          ambience: cmd.ambience === undefined ? this.current.volumes.ambience : clamp01(cmd.ambience)
+        }
         break
     }
     this.save()
@@ -106,7 +122,7 @@ export class ShowController {
     if (e.screen) this.current.screen = e.screen
     if (e.ambience) this.current.ambience = e.ambience
     if (e.light) void this.light.send(e.light)
-    if (e.sfx || e.ambience) this.emitAudio({ sfx: e.sfx, ambience: e.ambience })
+    if (e.sfx) this.emitAudio(e.sfx)
   }
 
   private save(): void {
