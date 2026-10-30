@@ -129,13 +129,14 @@ describe('show sound', () => {
     expect(projectPublic(g.state, { ...state, audioOutput: 'regie' }).audio).toBeUndefined()
   })
 
-  it('emits one-shot effects and clamps volumes', () => {
-    const played: SfxId[] = []
+  it('emits one-shot effects, cuts them, and clamps volumes', () => {
+    const played: (SfxId | null)[] = []
     const ctl = new ShowController(undefined, new FakeLight(), sfx => played.push(sfx))
     ctl.command({ kind: 'sfx', id: 'wolves' }, [])
+    ctl.command({ kind: 'stopSfx' }, [])
     ctl.command({ kind: 'volume', master: 3 }, [])
     ctl.command({ kind: 'audioOutput', target: 'regie' }, [])
-    expect(played).toEqual(['wolves'])
+    expect(played).toEqual(['wolves', null])
     expect(ctl.state.volumes).toEqual({ master: 1, ambience: 0.5 })
     expect(ctl.state.audioOutput).toBe('regie')
   })
