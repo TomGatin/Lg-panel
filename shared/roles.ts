@@ -211,6 +211,52 @@ export const ROLES: Record<RoleId, RoleDefinition> = {
     wakeFrequency: 'every_night',
     spokenPrompt: 'Le Corbeau se réveille et me désigne la personne qu\'il veut accabler demain.',
     guideNote: 'Il peut ne désigner personne.'
+  },
+  voleur: {
+    id: 'voleur',
+    name: 'Voleur',
+    team: 'village',
+    description: 'La 1ère nuit, peut échanger sa carte contre l\'une des deux cartes laissées de côté.',
+    maxAvailable: 1,
+    wakeFrequency: 'first_night_only',
+    spokenPrompt: 'Le Voleur se réveille. Je lui montre les deux cartes : il peut en prendre une.',
+    guideNote: 'Si les deux cartes sont des loups, il doit en prendre une. Il joue ensuite le rôle choisi.'
+  },
+  idiot_du_village: {
+    id: 'idiot_du_village',
+    name: 'Idiot du Village',
+    team: 'village',
+    description: 'Si le village vote contre lui, il révèle sa carte et survit, mais ne vote plus.',
+    maxAvailable: 1,
+    wakeFrequency: 'never',
+    guideNote: 'Un second vote contre lui le tue. Les loups peuvent le dévorer normalement.'
+  },
+  bouc_emissaire: {
+    id: 'bouc_emissaire',
+    name: 'Bouc Émissaire',
+    team: 'village',
+    description: 'En cas d\'égalité au vote, c\'est lui qui est éliminé.',
+    maxAvailable: 1,
+    wakeFrequency: 'never',
+    guideNote: 'Prime sur le Capitaine pour départager.'
+  },
+  servante_devouee: {
+    id: 'servante_devouee',
+    name: 'Servante Dévouée',
+    team: 'village',
+    description: 'Juste après un vote, peut se révéler pour prendre le rôle du condamné, sans le dévoiler.',
+    maxAvailable: 1,
+    wakeFrequency: 'never',
+    guideNote: 'Impossible si elle est amoureuse. Le mort est révélé comme Servante.'
+  },
+  juge_begue: {
+    id: 'juge_begue',
+    name: 'Juge Bègue',
+    team: 'village',
+    description: 'Une fois par partie, peut déclencher un second vote immédiatement après le premier.',
+    maxAvailable: 1,
+    wakeFrequency: 'never',
+    guideNote: 'Il convient d\'un signe avec le MJ la première nuit.'
   }
 }
 

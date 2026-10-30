@@ -1,4 +1,5 @@
 import { ReactNode } from 'react'
+import { ROLES } from '../../shared/roles'
 import { getFoxResult, getNightSteps, isPlayerWerewolf, NightStep } from '../../shared/rules'
 import { GameState, NightTargetKey, Player } from '../../shared/types'
 import { useLive } from '../lib/live'
@@ -65,7 +66,8 @@ function validateLabel(game: GameState, step: NightStep): string {
     loup_blanc: nameOf(game, n.whiteWolfTargetId),
     corbeau: nameOf(game, n.corbeauTargetId)
   }
-  const name = target[step.id]
+  const took = step.id === 'voleur' ? game.thief?.took : undefined
+  const name = took ? ROLES[took].name : target[step.id]
   return name ? `Valider · ${name}` : 'Valider'
 }
 
@@ -121,6 +123,20 @@ function StepControls({ game, step, onInspect }: { game: GameState; step: NightS
   )
 
   switch (step.id) {
+    case 'voleur': {
+      const thief = game.thief
+      if (!thief) return null
+      return (
+        <div className="flex gap-2">
+          <Choice active={!thief.took} onClick={() => dispatch({ type: 'THIEF_SWAP' })}>Garde sa carte</Choice>
+          {thief.cards.map((roleId, i) => (
+            <Choice key={i} active={thief.took === roleId} onClick={() => dispatch({ type: 'THIEF_SWAP', roleId })}>{ROLES[roleId].name}</Choice>
+          ))}
+        </div>
+      )
+    }
+    case 'carte_vierge':
+      return touchList(step.playerIds)
     case 'cupidon':
       return (
         <SeatGrid players={players} selectedIds={players.filter(p => p.isLover).map(p => p.id)}

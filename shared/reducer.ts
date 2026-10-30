@@ -1,5 +1,5 @@
 import { ROLES } from './roles'
-import { checkVictory, getFoxResult, getRustySwordTarget, getBearGrowlStatus, isPlayerWerewolf, turnLabel } from './rules'
+import { checkVictory, getFoxResult, getRustySwordTarget, getBearGrowlStatus, isPlayerWerewolf, turnLabel, WOLF_ROLES } from './rules'
 import { ActionContext, DeathReason, GameAction, GameState, LogEntry, NightState, NightTargetKey, Player, VoteState } from './types'
 
 /** Thrown when an action is not allowed by the rules; the server rejects it and the state is unchanged. */
@@ -32,7 +32,9 @@ export const initialGameState: GameState = {
   pendingCaptainSuccessor: false,
   angelWon: false,
   lastDeathIds: [],
-  dawnDeathIds: []
+  dawnDeathIds: [],
+  composition: [],
+  judgeUsed: false
 }
 
 const DEATH_MESSAGES: Record<DeathReason, (name: string, role: string) => string> = {
@@ -44,6 +46,7 @@ const DEATH_MESSAGES: Record<DeathReason, (name: string, role: string) => string
   chagrin: (n, r) => `${n} (${r}) meurt de chagrin après la perte de sa moitié.`,
   loup_blanc: (n, r) => `${n} (${r}) a été égorgé par le Loup-Garou Blanc.`,
   epee_rouillee: (n, r) => `${n} (${r}) succombe à la blessure de l'épée rouillée.`,
+  bouc: (n, r) => `${n} (${r}) est sacrifié par le village pour départager l'égalité.`,
   autre: (n, r) => `${n} (${r}) a été éliminé par le MJ.`
 }
 
@@ -90,9 +93,10 @@ function kill({ state, log }: Draft, playerId: string, reason: DeathReason): voi
     state.angelWon = true
     log(`L'Ange (${p.name}) a été condamné au premier vote : il gagne la partie.`, 'alert')
   }
-  if (p.roleId === 'ancien' && reason === 'vote') {
+  // Killed by the village's own hand (vote, Hunter, Witch): the village loses its powers.
+  if (p.roleId === 'ancien' && (reason === 'vote' || reason === 'chasseur' || reason === 'sorciere')) {
     state.villagePowersDisabled = true
-    log('Le village a condamné l\'Ancien : tous les villageois perdent leurs pouvoirs.', 'alert')
+    log('Le village a tué l\'Ancien : tous les villageois perdent leurs pouvoirs.', 'alert')
   }
   for (const child of state.players) {
     if (child.roleId === 'enfant_sauvage' && child.isAlive && child.wildChildModelId === p.id) {
@@ -180,6 +184,12 @@ function resolveDawn(draft: Draft): void {
 
 function completeNightStep({ state, log }: Draft, stepId: string): void {
   const night = state.night
+  if (stepId === 'voleur' && state.thief) {
+    const { cards, took, playerId } = state.thief
+    if (!took && cards.every(r => WOLF_ROLES.includes(r))) throw new RuleError('Les deux cartes sont des loups : le Voleur doit en prendre une.')
+    const name = findPlayer(state, playerId)?.name
+    log(took ? `${name} (Voleur) prend la carte ${ROLES[took].name}.` : `${name} (Voleur) garde sa carte.`, 'power')
+  }
   if (stepId === 'voyante') {
     const target = findPlayer(state, night.seerTargetId)
     if (target) log(`La Voyante a sondé ${target.name} : ${ROLES[target.roleId].name}.`, 'power')
@@ -201,6 +211,12 @@ function completeNightStep({ state, log }: Draft, stepId: string): void {
     if (target) log(`Le Salvateur protège ${target.name} cette nuit.`, 'power')
   }
   night.completedSteps[stepId] = true
+}
+
+/** The player the village just condemned, whose role the Servante may still take. */
+export function getServantTarget(state: GameState): Player | undefined {
+  return state.lastDeathIds.map(id => findPlayer(state, id))
+    .find(p => p !== undefined && p.deathReason === 'vote' && p.deathRound === turnLabel(state))
 }
 
 function setNightTarget(state: GameState, key: NightTargetKey, playerId: string | undefined): void {
@@ -249,6 +265,11 @@ function applyTimer(state: GameState, action: GameAction, now: number): void {
       t.endsAt = null
       t.pausedRemaining = null
       return
+    case 'ADJUST_TIMER':
+      // Running: move the end. Paused or not started: change what is left, never below zero.
+      if (t.endsAt !== null) t.endsAt = Math.max(now, t.endsAt + action.seconds * 1000)
+      else t.pausedRemaining = Math.max(0, (t.pausedRemaining ?? t.durationSeconds) + action.seconds)
+      return
     default:
       return
   }
@@ -262,6 +283,9 @@ function apply(draft: Draft, action: GameAction, ctx: ActionContext): void {
       if (action.players.length < 3) throw new RuleError('Il faut au moins 3 joueurs.')
       const seats = new Set(action.players.map(p => p.seatNumber))
       if (seats.size !== action.players.length) throw new RuleError('Deux joueurs ont le même siège.')
+      const thiefSeat = action.players.find(p => p.roleId === 'voleur')?.seatNumber
+      const thiefCards = action.thiefCards ?? []
+      if (thiefSeat !== undefined && thiefCards.length !== 2) throw new RuleError('Choisissez les deux cartes laissées au Voleur.')
       state.players = action.players
         .slice()
         .sort((a, b) => a.seatNumber - b.seatNumber)
@@ -276,8 +300,12 @@ function apply(draft: Draft, action: GameAction, ctx: ActionContext): void {
           isInfected: false,
           isCaptain: false,
           elderLives: p.roleId === 'ancien' ? 2 : 0,
-          foxLostPower: false
+          foxLostPower: false,
+          idiotRevealed: false
         }))
+      state.thief = thiefSeat !== undefined ? { playerId: `p${thiefSeat}`, cards: thiefCards } : undefined
+      state.customStep = state.players.some(p => p.roleId === 'carte_vierge') ? action.customStep : undefined
+      state.composition = [...state.players.map(p => p.roleId), ...(state.thief?.cards ?? [])]
       state.phase = 'playing'
       state.cycle = 'night'
       state.roundNumber = 1
@@ -301,9 +329,61 @@ function apply(draft: Draft, action: GameAction, ctx: ActionContext): void {
     }
     case 'ELIMINATE_BY_VOTE': {
       requireCycle(state, 'day')
-      requireAlive(state, action.playerId)
-      kill(draft, action.playerId, 'vote')
+      const p = requireAlive(state, action.playerId)
       state.vote = emptyVote()
+      if (p.roleId === 'idiot_du_village' && !p.idiotRevealed && !state.villagePowersDisabled) {
+        p.idiotRevealed = true
+        log(`${p.name} se révèle Idiot du Village : le village l'épargne, mais il ne votera plus.`, 'alert')
+        return
+      }
+      kill(draft, p.id, 'vote')
+      return
+    }
+    case 'SCAPEGOAT': {
+      requireCycle(state, 'day')
+      const goat = state.players.find(p => p.roleId === 'bouc_emissaire' && p.isAlive)
+      if (!goat) throw new RuleError('Aucun Bouc Émissaire en vie.')
+      if (state.villagePowersDisabled) throw new RuleError('Le Bouc Émissaire a perdu son pouvoir.')
+      kill(draft, goat.id, 'bouc')
+      state.vote = emptyVote()
+      return
+    }
+    case 'SERVANT_TAKE_ROLE': {
+      requireCycle(state, 'day')
+      const servant = state.players.find(p => p.roleId === 'servante_devouee' && p.isAlive)
+      if (!servant) throw new RuleError('Aucune Servante Dévouée en vie.')
+      if (servant.isLover) throw new RuleError('Une Servante amoureuse ne peut pas prendre le rôle.')
+      const condemned = getServantTarget(state)
+      if (!condemned) throw new RuleError('Personne vient d\'être condamné par le village.')
+      servant.roleId = condemned.roleId
+      servant.elderLives = condemned.roleId === 'ancien' ? 2 : 0
+      condemned.roleId = 'servante_devouee'
+      // The Hunter's card went to the servant: the shot no longer belongs to the dead.
+      if (state.pendingHunterShotPlayerId === condemned.id) state.pendingHunterShotPlayerId = undefined
+      log(`${servant.name} (Servante Dévouée) prend le rôle de ${condemned.name} : ${ROLES[servant.roleId].name}.`, 'power')
+      return
+    }
+    case 'JUDGE_SECOND_VOTE': {
+      requireCycle(state, 'day')
+      const judge = state.players.find(p => p.roleId === 'juge_begue' && p.isAlive)
+      if (!judge) throw new RuleError('Aucun Juge Bègue en vie.')
+      if (state.judgeUsed) throw new RuleError('Le Juge Bègue a déjà utilisé son pouvoir.')
+      if (state.villagePowersDisabled) throw new RuleError('Le Juge Bègue a perdu son pouvoir.')
+      state.judgeUsed = true
+      state.vote = emptyVote()
+      log(`Le Juge Bègue (${judge.name}) ordonne un second vote.`, 'power')
+      return
+    }
+    case 'THIEF_SWAP': {
+      requireCycle(state, 'night')
+      if (state.roundNumber !== 1) throw new RuleError('Le Voleur ne joue que la première nuit.')
+      const thief = state.thief
+      const p = findPlayer(state, thief?.playerId)
+      if (!thief || !p || !p.isAlive) throw new RuleError('Aucun Voleur en jeu.')
+      if (action.roleId !== undefined && !thief.cards.includes(action.roleId)) throw new RuleError('Cette carte n\'est pas au centre.')
+      thief.took = action.roleId
+      p.roleId = action.roleId ?? 'voleur'
+      p.elderLives = p.roleId === 'ancien' ? 2 : 0
       return
     }
     case 'EXECUTE_HUNTER_SHOT': {
@@ -317,13 +397,15 @@ function apply(draft: Draft, action: GameAction, ctx: ActionContext): void {
       const target = requireAlive(state, action.playerId)
       const becomes = !target.isCaptain
       state.players.forEach(p => { p.isCaptain = becomes && p.id === target.id })
-      if (becomes) log(`${target.name} est élu Capitaine : sa voix compte double.`, 'power')
+      state.captainRound = becomes ? turnLabel(state) : undefined
+      if (becomes) log(`${target.name} est élu Capitaine : il départagera le village en cas d'égalité.`, 'power')
       return
     }
     case 'ASSIGN_CAPTAIN_SUCCESSOR': {
       if (!state.pendingCaptainSuccessor) throw new RuleError('Aucune succession en attente.')
       const heir = requireAlive(state, action.newCaptainId)
       state.players.forEach(p => { p.isCaptain = p.id === heir.id })
+      state.captainRound = turnLabel(state)
       state.pendingCaptainSuccessor = false
       log(`${heir.name} hérite du titre de Capitaine.`, 'power')
       return
@@ -423,6 +505,7 @@ function apply(draft: Draft, action: GameAction, ctx: ActionContext): void {
     case 'START_TIMER':
     case 'PAUSE_TIMER':
     case 'RESET_TIMER':
+    case 'ADJUST_TIMER':
       applyTimer(state, action, ctx.now)
       return
     case 'ACCUSE': {

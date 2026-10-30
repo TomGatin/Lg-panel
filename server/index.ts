@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { networkInterfaces } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -87,6 +87,11 @@ app.delete('/api/presets/:name', c => {
   writePresets(readPresets().filter(p => p.name !== c.req.param('name')))
   return c.json({ ok: true })
 })
+
+// Sound and card files actually present, so the régie can flag missing ones before the show.
+const PUBLIC_DIR = resolve(PROD ? 'dist' : 'public')
+const listDir = (dir: string) => (existsSync(join(PUBLIC_DIR, dir)) ? readdirSync(join(PUBLIC_DIR, dir)) : [])
+app.get('/api/assets', c => c.json({ audio: listDir('audio'), cards: listDir('cards') }))
 
 app.get('/api/members', async c => {
   if (!trusted(c)) return c.json({ error: 'Jeton invalide.' }, 403)

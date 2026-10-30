@@ -1,6 +1,8 @@
-import { Pause, Play, RotateCcw, X } from 'lucide-react'
+import { ChevronRight, Pause, Play, RotateCcw, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ROLES } from '../../shared/roles'
+import { mjNextCue, SCREEN_LABELS } from '../../shared/cues'
+import { getServantTarget } from '../../shared/reducer'
 import { getBearGrowlStatus } from '../../shared/rules'
 import { GameState, Player } from '../../shared/types'
 import { haptics } from '../lib/haptics'
@@ -30,6 +32,27 @@ export function TimerControls({ game }: { game: GameState }) {
   )
 }
 
+/** The MJ steps through the opening of the day at the pace of the narration, without waiting for the régie. */
+function MorningScenes() {
+  const send = useLive(s => s.show)
+  const cues = useLive(s => s.staff?.cues)
+  const show = useLive(s => s.staff?.show)
+  const next = cues && show ? mjNextCue(cues, show) : undefined
+  if (!next || !show) return null
+  return (
+    <section className="flex items-center gap-2 border border-blood bg-blood-deep py-2 pl-4 pr-2">
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="label-caps text-[#E8CFC9]">Écran : {SCREEN_LABELS[show.screen]}</span>
+        <span className="truncate font-serif text-[17px] text-[#F6EFE0]">Ensuite : {next.title}</span>
+      </span>
+      <button type="button" onClick={() => send({ kind: 'go' })}
+        className="flex min-h-[52px] items-center gap-1 bg-blood px-4 font-display text-[15px] font-bold tracking-[0.06em] text-[#F6EFE0] active:bg-blood-go">
+        Suivant<ChevronRight size={18} />
+      </button>
+    </section>
+  )
+}
+
 export function DayView({ game }: { game: GameState }) {
   const dispatch = useLive(s => s.dispatch)
   const [picker, setPicker] = useState<'accuse' | 'captain' | null>(null)
@@ -39,6 +62,12 @@ export function DayView({ game }: { game: GameState }) {
   const captain = game.players.find(p => p.isCaptain && p.isAlive)
   const bear = game.villagePowersDisabled ? null : getBearGrowlStatus(game.players)
   const wounded = byId(game.night.rustyWoundedWolfId ?? '')
+  const powers = !game.villagePowersDisabled
+  const goat = powers ? alive.find(p => p.roleId === 'bouc_emissaire') : undefined
+  const servant = alive.find(p => p.roleId === 'servante_devouee' && !p.isLover)
+  const servantTarget = servant ? getServantTarget(game) : undefined
+  const judge = powers && !game.judgeUsed ? alive.find(p => p.roleId === 'juge_begue') : undefined
+  const votedToday = game.players.some(p => !p.isAlive && p.deathReason === 'vote' && p.deathRound === `Jour ${game.roundNumber}`)
 
   const { accusedIds, votes, corbeauBonus } = game.vote
   const ranked = [...accusedIds].sort((a, b) => (votes[b] ?? 0) - (votes[a] ?? 0))
@@ -50,6 +79,7 @@ export function DayView({ game }: { game: GameState }) {
   return (
     <>
       <div className="flex flex-col gap-2 px-4 pt-4">
+        <MorningScenes />
         <section className="border border-rule px-4 py-3">
           <span className="label-caps">À annoncer ce matin</span>
           <p className="mt-1 font-serif text-[19px] leading-snug">
@@ -71,6 +101,16 @@ export function DayView({ game }: { game: GameState }) {
         {!captain && (
           <button type="button" onClick={() => setPicker('captain')} className="min-h-[52px] border border-rule font-display text-[15px] font-bold tracking-[0.06em]">
             Élire le Capitaine
+          </button>
+        )}
+        {servant && servantTarget && (
+          <button type="button" onClick={() => dispatch({ type: 'SERVANT_TAKE_ROLE' })} className="min-h-[52px] border border-rule px-3 font-display text-[15px] font-bold tracking-[0.06em]">
+            La Servante ({servant.name}) prend le rôle de {servantTarget.name}
+          </button>
+        )}
+        {judge && votedToday && (
+          <button type="button" onClick={() => dispatch({ type: 'JUDGE_SECOND_VOTE' })} className="min-h-[52px] border border-rule px-3 font-display text-[15px] font-bold tracking-[0.06em]">
+            Second vote (Juge Bègue)
           </button>
         )}
       </div>
@@ -104,7 +144,9 @@ export function DayView({ game }: { game: GameState }) {
           )
         })}
         {tie && !selected && (
-          <p className="px-1 font-serif text-base italic text-blood-text">Égalité : le Capitaine tranche. Touchez le condamné.</p>
+          <p className="px-1 font-serif text-base italic text-blood-text">
+            {goat ? `Égalité : le Bouc Émissaire (${goat.name}) est sacrifié.` : 'Égalité : le Capitaine tranche. Touchez le condamné.'}
+          </p>
         )}
       </div>
 
@@ -122,6 +164,8 @@ export function DayView({ game }: { game: GameState }) {
         <SecondaryButton onClick={() => setPicker('accuse')}>Accuser</SecondaryButton>
         {condemned ? (
           <PrimaryButton onClick={() => { dispatch({ type: 'ELIMINATE_BY_VOTE', playerId: condemned.id }); setSelected(null) }}>Éliminer {condemned.name}</PrimaryButton>
+        ) : tie && goat ? (
+          <PrimaryButton onClick={() => dispatch({ type: 'SCAPEGOAT' })}>Sacrifier {goat.name}</PrimaryButton>
         ) : (
           <PrimaryButton onClick={() => dispatch({ type: 'ADVANCE_TO_NIGHT' })} disabled={tie}>La nuit tombe</PrimaryButton>
         )}

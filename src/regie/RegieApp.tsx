@@ -1,17 +1,20 @@
-import { Redo2, RotateCcw, Undo2 } from 'lucide-react'
+import { Pause, Play, Redo2, RotateCcw, Undo2 } from 'lucide-react'
 import { ReactNode, useEffect, useState } from 'react'
 import { describeEffects, hasEffects, isCueBehind, isCueDone, nextCue, SCREEN_LABELS, SFX_LABELS } from '../../shared/cues'
 import { StaffSnapshot } from '../../shared/protocol'
 import { getCurrentNightStep } from '../../shared/rules'
-import { AmbienceId, AudioOutput, Cue, LightCommand, ScreenView, SfxId, Volumes } from '../../shared/types'
+import { ROLES } from '../../shared/roles'
+import { AmbienceId, AudioOutput, Cue, GameTimer, LightCommand, RoleId, ScreenView, SfxId, ShowCommand, Volumes } from '../../shared/types'
+import { AMBIENCE_FILES, SFX_FILES } from '../lib/audio'
+import { formatClock, useRemaining } from '../lib/timer'
 import { useLive } from '../lib/live'
 import { useShowAudio } from '../lib/useShowAudio'
 import { Setup } from '../setup/Setup'
 import { DeniedScreen, ErrorToast, Loading } from '../ui/Feedback'
-import { RoomPlan } from './RoomPlan'
 
-const SCREENS: ScreenView[] = ['night', 'day', 'reveal', 'debate', 'vote', 'victory', 'blackout']
-const PADS: SfxId[] = ['wolves', 'bell', 'gunshot', 'witch', 'rooster', 'bear', 'crow', 'flute']
+const SCREENS: ScreenView[] = ['night', 'day', 'reveal', 'debate', 'vote', 'village', 'composition', 'captain', 'victory', 'blackout']
+// Pad n is played by the digit key n.
+const PADS: SfxId[] = ['wolves', 'bell', 'gunshot', 'witch', 'rooster', 'bear', 'crow', 'flute', 'announcement']
 
 function Panel({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
   return (
@@ -23,6 +26,11 @@ function Panel({ title, children, aside }: { title: string; children: ReactNode;
       {children}
     </section>
   )
+}
+
+/** Keyboard shortcut hint on a régie button. */
+function Key({ children }: { children: ReactNode }) {
+  return <kbd className="ml-1 font-sans text-[11px] font-semibold opacity-60">{children}</kbd>
 }
 
 function Pill({ ok, label }: { ok: boolean; label: string }) {
@@ -61,17 +69,26 @@ function Console({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioReady
   const send = useLive(s => s.show)
   const undo = useLive(s => s.undo)
   const redo = useLive(s => s.redo)
-  const [targetSeat, setTargetSeat] = useState<number>()
   const next = nextCue(cues, show)
   const step = game.phase === 'playing' && game.cycle === 'night' ? getCurrentNightStep(game) : undefined
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement
-      // Space is GO everywhere, even on a focused button (which would otherwise replay that button).
-      if (e.code !== 'Space' || e.repeat || el.closest('input, select, textarea')) return
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || el.closest('input, select, textarea')) return
+      const pad = PADS[Number(e.key) - 1]
+      const command: ShowCommand | undefined =
+        // Space is GO everywhere, even on a focused button (which would otherwise replay that button).
+        e.code === 'Space' ? { kind: 'go' }
+          : pad ? { kind: 'sfx', id: pad }
+          : e.key === 'Escape' ? { kind: 'stopSfx' }
+          : e.key === 'b' || e.key === 'B' ? { kind: 'light', command: { kind: 'blackout' } }
+          : e.key === 'n' || e.key === 'N' ? { kind: 'ambience', id: 'night' }
+          : e.key === 'j' || e.key === 'J' ? { kind: 'ambience', id: 'day' }
+          : undefined
+      if (!command) return
       e.preventDefault()
-      send({ kind: 'go' })
+      send(command)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -105,14 +122,19 @@ function Console({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioReady
             </>
           )}
           <Panel title="Écran public" aside={<span className="text-[13px] text-muted">affiche : {SCREEN_LABELS[show.screen]}</span>}>
-            <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-7">
+            <div className="grid grid-cols-5 gap-1.5">
               {SCREENS.map(v => (
                 <button key={v} type="button" onClick={() => send({ kind: 'screen', view: v })}
-                  className={`min-h-[46px] rounded-md text-[15px] font-semibold ${show.screen === v ? 'bg-bone text-ink' : 'bg-tile'}`}>
+                  disabled={v === 'village' && !show.villageScreen}
+                  className={`min-h-[46px] rounded-md text-[15px] font-semibold disabled:opacity-40 ${show.screen === v ? 'bg-bone text-ink' : 'bg-tile'}`}>
                   {SCREEN_LABELS[v]}
                 </button>
               ))}
             </div>
+            <label className="flex items-center gap-2 text-[13px] text-muted">
+              <input type="checkbox" checked={show.villageScreen} onChange={e => send({ kind: 'villageScreen', on: e.target.checked })} className="h-4 w-4 accent-blood-go" />
+              Autoriser l'écran Village (morts et rôles révélés, visibles par tous)
+            </label>
           </Panel>
           <Panel title="Journal" aside={
             <div className="flex gap-1.5">
@@ -133,17 +155,15 @@ function Console({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioReady
         </section>
 
         <aside className="flex min-w-0 flex-[1_1_380px] flex-col gap-3">
-          <Panel title="Plan de salle · clic = lyres">
-            <RoomPlan players={game.players} targetSeat={targetSeat}
-              onTarget={seat => { setTargetSeat(seat); light({ kind: 'target', seat, color: 'red' }) }} />
-          </Panel>
+          {game.phase === 'setup' && <PrepPanel snapshot={snapshot} audioReady={audioReady} />}
+          {game.phase === 'playing' && game.cycle === 'day' && <TimerPanel timer={game.timer} />}
           <SoundPanel ambience={show.ambience} output={show.audioOutput} volumes={show.volumes} />
           <Panel title="Lumière">
             <div className="grid grid-cols-4 gap-1.5">
-              <button type="button" onClick={() => light({ kind: 'blackout' })} className="min-h-[52px] rounded-md bg-bone text-[15px] font-bold text-ink">Blackout</button>
+              <button type="button" onClick={() => light({ kind: 'blackout' })} className="min-h-[52px] rounded-md bg-bone text-[15px] font-bold text-ink">Blackout <Key>B</Key></button>
               <button type="button" onClick={() => light({ kind: 'full' })} className="min-h-[52px] rounded-md bg-bone text-[15px] font-bold text-ink">Plein feu</button>
               <button type="button" onClick={() => light({ kind: 'strobe' })} className="min-h-[52px] rounded-md bg-bone text-[15px] font-bold text-ink">Strobe</button>
-              <button type="button" onClick={() => { setTargetSeat(undefined); light({ kind: 'scene', name: game.cycle === 'night' ? 'night' : 'day' }) }}
+              <button type="button" onClick={() => light({ kind: 'scene', name: game.cycle === 'night' ? 'night' : 'day' })}
                 className="min-h-[52px] rounded-md bg-bone text-[15px] font-bold text-ink">Retour</button>
             </div>
           </Panel>
@@ -167,6 +187,80 @@ function ResetButton() {
       className={`flex min-h-[36px] items-center gap-1.5 rounded-md px-3 text-[14px] font-semibold ${armed ? 'bg-blood-go text-[#FFF6EE]' : 'bg-tile'}`}>
       <RotateCcw size={16} />{armed ? 'Confirmer : réinitialiser' : 'Nouvelle partie'}
     </button>
+  )
+}
+
+const SOUND_FILES = [...Object.values(SFX_FILES), ...Object.values(AMBIENCE_FILES)].map(f => f.replace('/audio/', ''))
+const CARD_ROLES = (Object.keys(ROLES) as RoleId[]).filter(id => id !== 'carte_vierge')
+
+/** Before the doors open: every output answers, every file is there. */
+function PrepPanel({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioReady: boolean }) {
+  const send = useLive(s => s.show)
+  const { show, connected, lightStatus } = snapshot
+  const [assets, setAssets] = useState<{ audio: string[]; cards: string[] } | null>(null)
+  useEffect(() => {
+    fetch('/api/assets').then(r => r.json() as Promise<{ audio: string[]; cards: string[] }>).then(setAssets).catch(() => setAssets(null))
+  }, [])
+  const missingSounds = assets ? SOUND_FILES.filter(f => !assets.audio.includes(f)) : []
+  const missingCards = assets ? CARD_ROLES.filter(id => !assets.cards.includes(`${id}.jpg`)) : []
+  const row = 'flex flex-wrap items-center gap-2'
+  const button = 'min-h-[40px] rounded-md bg-tile px-3 text-[14px] font-semibold'
+  return (
+    <Panel title="Préparation">
+      <div className={row}>
+        <Pill ok={connected.public > 0} label={connected.public > 0 ? 'Écran connecté' : 'Écran absent'} />
+        <button type="button" onClick={() => send({ kind: 'screen', view: 'test' })} className={button}>Afficher la mire</button>
+        <button type="button" onClick={() => send({ kind: 'screen', view: 'blackout' })} className={button}>Noir</button>
+      </div>
+      <div className={row}>
+        <Pill ok={audioReady} label={`${show.audioOutput === 'public' ? 'Son TV' : 'Son régie'} ${audioReady ? 'actif' : 'inactif'}`} />
+        <button type="button" onClick={() => send({ kind: 'sfx', id: 'bell' })} className={button}>Tester le son</button>
+      </div>
+      <div className={row}>
+        <Pill ok={lightStatus !== 'down'} label={lightStatus === 'fake' ? 'Lumières simulées' : lightStatus === 'ok' ? 'Lumières OK' : 'Lumières injoignables'} />
+        <button type="button" onClick={() => send({ kind: 'testLights' })} className={button}>Tester les lumières</button>
+      </div>
+      {!audioReady && show.audioOutput === 'public' && (
+        <p className="text-[13px] text-blood-text">Sur la TV : appuyer une fois sur OK de la télécommande pour activer le son.</p>
+      )}
+      {assets ? (
+        <>
+          <p className={`text-[13px] ${missingSounds.length > 0 ? 'text-blood-text' : 'text-muted'}`}>
+            {missingSounds.length > 0 ? `Sons manquants dans public/audio/ : ${missingSounds.join(', ')}` : `Sons : ${SOUND_FILES.length} fichiers présents.`}
+          </p>
+          <p className="text-[13px] text-muted">
+            Cartes scannées : {CARD_ROLES.length - missingCards.length}/{CARD_ROLES.length}
+            {missingCards.length > 0 && ` (carte gravée à la place pour ${missingCards.map(id => ROLES[id].name).join(', ')})`}
+          </p>
+        </>
+      ) : (
+        <p className="text-[13px] text-muted">Vérification des fichiers…</p>
+      )}
+    </Panel>
+  )
+}
+
+/** The debate clock, also in the régie's hands: same actions as the MJ's phone. */
+function TimerPanel({ timer }: { timer: GameTimer }) {
+  const dispatch = useLive(s => s.dispatch)
+  const remaining = useRemaining(timer)
+  const running = timer.endsAt !== null
+  const button = 'flex min-h-[44px] items-center justify-center gap-1.5 rounded-md bg-tile px-3 text-[14px] font-semibold'
+  return (
+    <Panel title="Minuteur du débat" aside={<span className="text-[13px] text-muted">{running ? 'en cours' : timer.pausedRemaining !== null ? 'en pause' : 'arrêté'}</span>}>
+      <div className="flex items-center gap-3">
+        <span className={`font-display text-[40px] font-bold tabular-nums ${running && remaining <= 30 ? 'text-blood-text' : ''}`}>{formatClock(remaining)}</span>
+        <button type="button" onClick={() => dispatch(running ? { type: 'PAUSE_TIMER' } : { type: 'START_TIMER' })}
+          className="flex min-h-[52px] flex-1 items-center justify-center gap-2 rounded-md bg-bone text-[15px] font-bold text-ink">
+          {running ? <><Pause size={18} />Pause</> : <><Play size={18} />{timer.pausedRemaining !== null ? 'Reprendre' : 'Lancer'}</>}
+        </button>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5">
+        <button type="button" onClick={() => dispatch({ type: 'ADJUST_TIMER', seconds: -30 })} className={button}>−30 s</button>
+        <button type="button" onClick={() => dispatch({ type: 'ADJUST_TIMER', seconds: 30 })} className={button}>+30 s</button>
+        <button type="button" onClick={() => dispatch({ type: 'RESET_TIMER' })} className={button}><RotateCcw size={16} />Remettre</button>
+      </div>
+    </Panel>
   )
 }
 
@@ -254,17 +348,19 @@ function SoundPanel({ ambience, output, volumes }: { ambience: AmbienceId; outpu
         {(['night', 'day', 'none'] as const).map(id => (
           <button key={id} type="button" onClick={() => send({ kind: 'ambience', id })}
             className={`min-h-[44px] rounded-md text-[14px] font-semibold ${ambience === id ? 'bg-bone text-ink' : 'bg-tile'}`}>
-            {id === 'night' ? 'Ambiance nuit' : id === 'day' ? 'Ambiance jour' : 'Silence'}
+            {id === 'night' ? <>Ambiance nuit <Key>N</Key></> : id === 'day' ? <>Ambiance jour <Key>J</Key></> : 'Silence'}
           </button>
         ))}
       </div>
-      <div className="grid grid-cols-4 gap-1.5">
-        {PADS.map(id => (
-          <button key={id} type="button" onClick={() => send({ kind: 'sfx', id })} className="min-h-[52px] rounded-md bg-tile text-[15px] font-semibold active:bg-rule">{SFX_LABELS[id]}</button>
+      <div className="grid grid-cols-3 gap-1.5">
+        {PADS.map((id, i) => (
+          <button key={id} type="button" onClick={() => send({ kind: 'sfx', id })} className="flex min-h-[52px] flex-col items-center justify-center rounded-md bg-tile text-[15px] font-semibold active:bg-rule">
+            {SFX_LABELS[id]}<Key>{i + 1}</Key>
+          </button>
         ))}
       </div>
       <button type="button" onClick={() => send({ kind: 'stopSfx' })}
-        className="min-h-[52px] rounded-md bg-blood-go text-[15px] font-bold text-[#FFF6EE] active:opacity-80">Couper les effets</button>
+        className="min-h-[52px] rounded-md bg-blood-go text-[15px] font-bold text-[#FFF6EE] active:opacity-80">Couper les effets <Key>Échap</Key></button>
     </Panel>
   )
 }

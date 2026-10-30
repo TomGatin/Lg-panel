@@ -1,12 +1,12 @@
 import { AmbienceId, SfxId } from '../../shared/types'
 
 // Every file in public/audio/ is loudness-matched (-16 LUFS effects, -23 LUFS ambiences): no per-file gain.
-const AMBIENCE_FILES: Record<Exclude<AmbienceId, 'none'>, string> = {
+export const AMBIENCE_FILES: Record<Exclude<AmbienceId, 'none'>, string> = {
   night: '/audio/ambience-night.mp3',
   day: '/audio/ambience-day.mp3'
 }
 
-const SFX_FILES: Record<SfxId, string> = {
+export const SFX_FILES: Record<SfxId, string> = {
   wolves: '/audio/wolves.mp3',
   rooster: '/audio/rooster.mp3',
   bell: '/audio/bell.mp3',
@@ -15,6 +15,7 @@ const SFX_FILES: Record<SfxId, string> = {
   flute: '/audio/flute.mp3',
   bear: '/audio/bear.mp3',
   crow: '/audio/crow.mp3',
+  announcement: '/audio/announcement.mp3',
   victory_village: '/audio/victory-village.mp3',
   victory_wolves: '/audio/victory-wolves.mp3'
 }

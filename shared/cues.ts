@@ -1,5 +1,5 @@
-import { getBearGrowlStatus, getNightSteps, NightStepId } from './rules'
-import { Cue, CueEffects, GameState, ShowState, SfxId, Winner } from './types'
+import { getBearGrowlStatus, getNightSteps, NightStepId, turnLabel } from './rules'
+import { Cue, CueEffects, GameState, Player, ScreenView, ShowState, SfxId, Winner } from './types'
 
 const STEP_EFFECTS: Partial<Record<NightStepId, CueEffects>> = {
   salvateur: { light: { kind: 'scene', name: 'salvateur' } },
@@ -11,8 +11,8 @@ const STEP_EFFECTS: Partial<Record<NightStepId, CueEffects>> = {
   joueur_de_flute: { sfx: 'flute', light: { kind: 'scene', name: 'flute' } }
 }
 
-const TARGET_COLOR = 'red'
-const HUNTER_COLOR = 'amber'
+// Lights never single out a player: deaths get one effect for the whole room.
+const DEATH_LIGHT = { kind: 'scene', name: 'death' } as const
 
 /**
  * The régie's cue list for the current cycle, derived from the game.
@@ -21,7 +21,6 @@ const HUNTER_COLOR = 'amber'
 export function buildCues(game: GameState): Cue[] {
   if (game.phase === 'setup') return []
   const n = game.roundNumber
-  const seatOf = (id: string) => game.players.find(p => p.id === id)?.seatNumber
   const cues: Cue[] = []
 
   if (game.cycle === 'night') {
@@ -38,41 +37,51 @@ export function buildCues(game: GameState): Cue[] {
   } else {
     cues.push({ id: `d${n}-daybreak`, kind: 'daybreak', title: 'Lever du jour', ready: true,
       effects: { sfx: 'rooster', ambience: 'day', light: { kind: 'scene', name: 'day' }, screen: 'day' } })
-    const firstDeathSeat = game.dawnDeathIds.length > 0 ? seatOf(game.dawnDeathIds[0]) : undefined
     cues.push({ id: `d${n}-reveal`, kind: 'reveal', ready: true,
       title: game.dawnDeathIds.length > 0 ? 'Révélation des morts' : 'Le village se réveille sans perte',
       effects: {
         screen: 'reveal',
-        sfx: game.dawnDeathIds.length > 0 ? 'bell' : undefined,
-        light: firstDeathSeat !== undefined ? { kind: 'target', seat: firstDeathSeat, color: TARGET_COLOR } : undefined
+        // A hunter shot at dawn would otherwise replace the night's victims on the screen.
+        reveal: game.dawnDeathIds,
+        // The bell tolls for the dead; a night without victims is good news.
+        sfx: game.dawnDeathIds.length > 0 ? 'bell' : 'announcement',
+        light: game.dawnDeathIds.length > 0 ? DEATH_LIGHT : undefined
       } })
     const bear = getBearGrowlStatus(game.players)
     if (bear?.growls && bear.bear && !game.villagePowersDisabled) {
       cues.push({ id: `d${n}-bear`, kind: 'bear', title: 'L\'ours grogne', ready: true,
-        effects: { sfx: 'bear', light: { kind: 'target', seat: bear.bear.seatNumber, color: HUNTER_COLOR } } })
+        effects: { sfx: 'bear' } })
     }
     const accusedId = Object.keys(game.vote.corbeauBonus)[0]
     if (accusedId) {
-      const seat = seatOf(accusedId)
-      cues.push({ id: `d${n}-crow`, kind: 'crow', title: 'Le Corbeau a désigné', ready: true,
-        effects: { sfx: 'crow', light: seat !== undefined ? { kind: 'target', seat, color: TARGET_COLOR } : undefined } })
+      cues.push({ id: `d${n}-crow`, kind: 'crow', title: 'Le Corbeau a désigné', ready: true, effects: { sfx: 'crow' } })
     }
+    // A landmark in the running order only: the shot itself has its own cue.
     if (game.pendingHunterShotPlayerId) {
-      const seat = seatOf(game.pendingHunterShotPlayerId)
-      cues.push({ id: `hunter-${game.pendingHunterShotPlayerId}`, kind: 'hunter', title: 'Le Chasseur se lève', ready: true,
-        effects: { light: seat !== undefined ? { kind: 'target', seat, color: HUNTER_COLOR } : undefined } })
+      cues.push({ id: `hunter-${game.pendingHunterShotPlayerId}`, kind: 'hunter', title: 'Le Chasseur se lève', ready: true, effects: {} })
     }
+    const deathCue = (p: Player): Cue => {
+      const shot = p.deathReason === 'chasseur'
+      return { id: `d${n}-death-${p.id}`, kind: 'death', ready: true,
+        title: `${shot ? 'Tir du Chasseur' : 'Élimination'} : ${p.name}`,
+        effects: { screen: 'reveal', sfx: shot ? 'gunshot' : 'bell', light: shot ? { kind: 'strobe' } : DEATH_LIGHT } }
+    }
+    const diedToday = game.players.filter(p => !p.isAlive && p.deathRound === `Jour ${n}`)
+    // A Hunter found dead at dawn shoots before the debate: his shot belongs to the morning.
+    const hunterAtDawn = game.players.some(p => p.roleId === 'chasseur' && game.dawnDeathIds.includes(p.id))
+    const morningShot = (p: Player) => hunterAtDawn && p.deathReason === 'chasseur'
+    cues.push(...diedToday.filter(morningShot).map(deathCue))
     cues.push({ id: `d${n}-debate`, kind: 'debate', title: 'Débat', ready: true, effects: { screen: 'debate' } })
     cues.push({ id: `d${n}-vote`, kind: 'vote', title: 'Vote du village', ready: game.vote.accusedIds.length > 0,
       effects: { screen: 'vote' } })
-    for (const p of game.players) {
-      if (p.isAlive || p.deathRound !== `Jour ${n}`) continue
-      const shot = p.deathReason === 'chasseur'
-      cues.push({ id: `d${n}-death-${p.id}`, kind: 'death', ready: true,
-        title: `${shot ? 'Tir du Chasseur' : 'Élimination'} : ${p.name}`,
-        effects: { screen: 'reveal', sfx: shot ? 'gunshot' : 'bell',
-          light: shot ? { kind: 'strobe' } : { kind: 'target', seat: p.seatNumber, color: TARGET_COLOR } } })
-    }
+    cues.push(...diedToday.filter(p => !morningShot(p)).map(deathCue))
+  }
+
+  // Announced once, in the turn the captain was named (election or succession).
+  const captain = game.players.find(p => p.isCaptain && p.isAlive)
+  if (captain && game.captainRound === turnLabel(game)) {
+    cues.push({ id: `captain-${game.captainRound}-${captain.id}`, kind: 'captain', title: `Capitaine : ${captain.name}`, ready: true,
+      effects: { screen: 'captain', sfx: 'announcement' } })
   }
 
   if (game.phase === 'game_over') {
@@ -85,6 +94,12 @@ export function buildCues(game: GameState): Cue[] {
 // Wolves howl over their own wins; every other camp gets the village bells.
 function victorySfx(winner: Winner | undefined): SfxId {
   return winner === 'loups' || winner === 'loup_blanc' ? 'victory_wolves' : 'victory_village'
+}
+
+/** The debate clock starts by itself when the projector switches to the debate, unless it already ran today. */
+export function startsDebate(prev: ScreenView, next: ScreenView, game: GameState): boolean {
+  return prev !== 'debate' && next === 'debate' && game.phase === 'playing' && game.cycle === 'day' &&
+    game.timer.endsAt === null && game.timer.pausedRemaining === null
 }
 
 export function hasEffects(cue: Cue): boolean {
@@ -106,6 +121,16 @@ export function nextCue(cues: Cue[], show: ShowState): Cue | undefined {
   return cues.slice(from).find(c => c.ready && hasEffects(c))
 }
 
+/**
+ * The cue the MJ's « Suivant » plays: the opening of the day, up to and including the debate.
+ * Past that point (vote, eliminations, victory), the régie keeps the hand.
+ */
+export function mjNextCue(cues: Cue[], show: ShowState): Cue | undefined {
+  const next = nextCue(cues, show)
+  const debate = cues.findIndex(c => c.kind === 'debate')
+  return next && debate !== -1 && cues.indexOf(next) <= debate ? next : undefined
+}
+
 /** A cue the show has moved past without playing it. */
 export function isCueBehind(cue: Cue, cues: Cue[], show: ShowState): boolean {
   if (cue.passed) return true
@@ -125,7 +150,6 @@ export function describeEffects(e: CueEffects): string {
 export function describeLight(l: NonNullable<CueEffects['light']>): string {
   switch (l.kind) {
     case 'scene': return `scène ${l.name}`
-    case 'target': return `lyres sur le siège ${l.seat}`
     case 'strobe': return 'stroboscope'
     case 'blackout': return 'blackout'
     case 'full': return 'plein feu'
@@ -141,6 +165,7 @@ export const SFX_LABELS: Record<NonNullable<CueEffects['sfx']>, string> = {
   flute: 'Flûte',
   bear: 'Ours',
   crow: 'Corbeau',
+  announcement: 'Annonce',
   victory_village: 'Cloches',
   victory_wolves: 'Meute'
 }
@@ -152,5 +177,9 @@ export const SCREEN_LABELS: Record<NonNullable<CueEffects['screen']>, string> = 
   debate: 'Débat',
   vote: 'Vote',
   victory: 'Victoire',
-  blackout: 'Noir'
+  blackout: 'Noir',
+  village: 'Village',
+  composition: 'Composition',
+  captain: 'Capitaine',
+  test: 'Mire'
 }

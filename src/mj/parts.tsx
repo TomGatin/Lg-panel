@@ -113,12 +113,29 @@ export function PickerSheet({ title, players, onPick, onClose, prompt, disabledR
 export function VillageSheet({ game, onClose, onInspect }: { game: GameState; onClose: () => void; onInspect: (p: Player) => void }) {
   const dispatch = useLive(s => s.dispatch)
   const [armed, setArmed] = useState<string | null>(null)
+  const [tab, setTab] = useState<'players' | 'log'>('players')
   return (
     <div role="dialog" aria-modal="true" aria-label="Le village" className="fixed inset-0 z-30 flex flex-col bg-ink">
-      <div className="flex items-center justify-between border-b border-rule py-3 pl-5 pr-3">
-        <h2 className="font-display text-xl font-bold tracking-[0.06em]">Le village</h2>
+      <div className="flex items-center gap-2 border-b border-rule py-3 pl-5 pr-3">
+        <h2 className="flex-1 font-display text-xl font-bold tracking-[0.06em]">Le village</h2>
+        {(['players', 'log'] as const).map(t => (
+          <button key={t} type="button" onClick={() => setTab(t)} aria-pressed={tab === t}
+            className={`min-h-[48px] border px-3 font-display text-[14px] font-bold tracking-[0.06em] ${tab === t ? 'border-blood bg-blood text-[#F6EFE0]' : 'border-rule text-bone'}`}>
+            {t === 'players' ? 'Joueurs' : 'Journal'}
+          </button>
+        ))}
         <button type="button" aria-label="Fermer" onClick={onClose} className="flex h-12 w-12 items-center justify-center border border-rule"><X size={20} /></button>
       </div>
+      {tab === 'log' ? (
+        <ol className="flex-1 overflow-y-auto px-4 py-2">
+          {game.logs.map(l => (
+            <li key={l.id} className={`flex gap-3 border-b border-rule py-2 font-serif text-[16px] leading-snug ${l.type === 'death' || l.type === 'alert' ? 'text-blood-text' : ''}`}>
+              <span className="w-14 shrink-0 font-sans text-[13px] text-muted">{l.turnLabel}</span>
+              <span>{l.message}</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
       <ul className="flex-1 overflow-y-auto">
         {game.players.map(p => {
           const tags = [
@@ -126,6 +143,7 @@ export function VillageSheet({ game, onClose, onInspect }: { game: GameState; on
             p.isLover && 'Amoureux',
             p.isCharmed && 'Charmé',
             p.isInfected && 'Infecté',
+            p.idiotRevealed && 'Idiot révélé, ne vote plus',
             p.roleId === 'ancien' && p.isAlive && `${p.elderLives} vie(s)`,
             p.roleId === 'renard' && p.foxLostPower && 'Flair perdu',
             p.dogWolfChoice && `Camp ${p.dogWolfChoice === 'loup' ? 'loup' : 'village'}`,
@@ -153,6 +171,7 @@ export function VillageSheet({ game, onClose, onInspect }: { game: GameState; on
           )
         })}
       </ul>
+      )}
     </div>
   )
 }

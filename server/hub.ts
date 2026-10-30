@@ -1,10 +1,10 @@
 import type { IncomingMessage, Server } from 'node:http'
 import { WebSocket, WebSocketServer } from 'ws'
-import { buildCues } from '../shared/cues'
+import { buildCues, mjNextCue, startsDebate } from '../shared/cues'
 import { projectPublic } from '../shared/project'
 import { AckedMessage, ClientMessage, ClientRole, ServerMessage, StaffSnapshot, WS_PATH } from '../shared/protocol'
 import { RuleError } from '../shared/reducer'
-import { Cue } from '../shared/types'
+import { Cue, ScreenView } from '../shared/types'
 import { LightPort } from './light'
 import { ShowController } from './show'
 import { GameStore } from './store'
@@ -35,6 +35,7 @@ export class Hub {
   // Phones resend an action after a reconnect: remember recent ids so it is applied once.
   private acks = new Map<string, ServerMessage>()
   private readonly show: ShowController
+  private timeUp: ReturnType<typeof setTimeout> | undefined
 
   constructor(
     private readonly store: GameStore,
@@ -121,10 +122,18 @@ export class Hub {
         case 'redo':
           if (!this.store.redo()) error = 'Rien à rétablir.'
           break
-        case 'show':
-          if (client.role !== 'regie') error = 'Seule la régie pilote le spectacle.'
-          else error = this.show.command(msg.command, this.cues)
+        case 'show': {
+          // The MJ may only step through the opening of the day; everything else is the régie's.
+          const mjAllowed = client.role === 'mj' && msg.command.kind === 'go' && mjNextCue(this.cues, this.show.state) !== undefined
+          if (client.role !== 'regie' && !mjAllowed) {
+            error = client.role === 'mj' ? 'La suite du spectacle est entre les mains de la régie.' : 'Seule la régie pilote le spectacle.'
+            break
+          }
+          const before = this.show.state.screen
+          error = this.show.command(msg.command, this.cues)
+          if (error === undefined) this.startDebate(before)
           break
+        }
       }
     } catch (err) {
       if (!(err instanceof RuleError)) throw err
@@ -142,7 +151,23 @@ export class Hub {
   private refresh(): void {
     if (this.store.state.phase === 'setup') this.show.clearCues()
     this.cues = buildCues(this.store.state)
+    const before = this.show.state.screen
     this.show.autoFire(this.cues)
+    this.startDebate(before)
+    this.armTimeUp()
+  }
+
+  private startDebate(before: ScreenView): void {
+    if (startsDebate(before, this.show.state.screen, this.store.state)) this.store.dispatch({ type: 'START_TIMER' })
+  }
+
+  // The bell tolls when the debate runs out, wherever the sound goes out.
+  private armTimeUp(): void {
+    clearTimeout(this.timeUp)
+    const { endsAt } = this.store.state.timer
+    if (endsAt === null || endsAt <= Date.now()) return
+    this.timeUp = setTimeout(() => this.show.command({ kind: 'sfx', id: 'bell' }, this.cues), endsAt - Date.now())
+    this.timeUp.unref()
   }
 
   private remember(id: string, ack: ServerMessage): void {

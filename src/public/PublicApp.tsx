@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import { PublicView } from '../../shared/types'
 import { reportAudioReady, useLive } from '../lib/live'
 import { formatClock, useRemaining } from '../lib/timer'
@@ -50,7 +50,7 @@ function Reveal({ view }: { view: PublicView }) {
         {view.deathMoment === 'dawn' ? 'Au chant du coq, on retrouva sans vie' : 'Le village a perdu'}
       </p>
       {view.lastDeaths.map(d => (
-        <div key={d.name} className="flex flex-col items-center space-y-[1vmin]">
+        <div key={d.seat} className="flex flex-col items-center space-y-[1vmin]">
           <h1 className={`font-display font-bold leading-none tracking-[0.06em] ${single ? 'text-[17vmin]' : 'text-[10vmin]'}`}>{d.name}</h1>
           <p className="font-serif text-[4.5vmin]">qui était <span className="italic text-blood-text">{d.roleName}</span></p>
         </div>
@@ -63,8 +63,9 @@ function Reveal({ view }: { view: PublicView }) {
 
 function Debate({ view }: { view: PublicView }) {
   const remaining = useRemaining(view.timer)
-  const fraction = view.timer.durationSeconds > 0 ? remaining / view.timer.durationSeconds : 0
+  const fraction = view.timer.durationSeconds > 0 ? Math.min(1, remaining / view.timer.durationSeconds) : 0
   const urgent = remaining <= 30
+  const timeUp = remaining === 0 && view.timer.endsAt !== null
   return (
     <Frame kicker={`Jour ${view.roundNumber} · Le village délibère`}>
       <div className="relative h-[52vmin] w-[52vmin]">
@@ -78,11 +79,12 @@ function Debate({ view }: { view: PublicView }) {
           {formatClock(remaining)}
         </span>
       </div>
+      {timeUp && <p className="font-display text-[6vmin] font-bold uppercase tracking-[0.2em] text-blood-text">Temps écoulé</p>}
       {view.accused.length > 0 && (
         <p className="flex flex-wrap items-center justify-center font-display text-[4.5vmin] font-bold tracking-[0.06em]">
           <span className="mr-[2vmin] font-serif text-[4vmin] font-normal italic tracking-normal text-muted">Sont accusés</span>
           {view.accused.map((a, i) => (
-            <span key={a.name}>{i > 0 && <span className="mr-[2vmin] text-blood">·</span>}{a.name}</span>
+            <span key={a.seat}>{i > 0 && <span className="mr-[2vmin] text-blood">·</span>}{a.name}</span>
           ))}
         </p>
       )}
@@ -97,7 +99,7 @@ function Vote({ view }: { view: PublicView }) {
       {view.accused.length === 0 && <p className="font-serif text-[5vmin] italic text-muted">Personne n'est encore accusé.</p>}
       <ul className="flex w-[70vmin] flex-col space-y-[2vmin]">
         {view.accused.map(a => (
-          <li key={a.name} className="flex items-center space-x-[3vmin]">
+          <li key={a.seat} className="flex items-center space-x-[3vmin]">
             <span className="w-[26vmin] text-right font-display text-[5vmin] font-bold">{a.name}</span>
             <span className="h-[4vmin] bg-blood" style={{ width: `${(a.votes / max) * 34}vmin` }} />
             <span className="font-display text-[5vmin] font-bold tabular-nums">{a.votes}</span>
@@ -108,8 +110,89 @@ function Vote({ view }: { view: PublicView }) {
   )
 }
 
+function Village({ view }: { view: PublicView }) {
+  const seats = view.village ?? []
+  return (
+    <Frame kicker={`${view.cycle === 'day' ? 'Jour' : 'Nuit'} ${view.roundNumber} · Le village`}>
+      <ul className="grid w-full max-w-[150vmin] grid-cols-4 gap-x-[3vmin] gap-y-[2vmin]">
+        {seats.map(s => (
+          <li key={s.seat} className={`flex items-baseline space-x-[1.5vmin] border-b border-rule pb-[1vmin] text-left ${s.alive ? '' : 'opacity-60'}`}>
+            <span className="font-display text-[2.4vmin] font-bold text-muted">{s.seat}</span>
+            <span className="flex min-w-0 flex-col">
+              <span className={`truncate font-display text-[3.6vmin] font-bold ${s.alive ? '' : 'line-through'}`}>
+                {s.name}{s.captain && <span className="ml-[1vmin] font-serif text-[2.6vmin] font-normal italic text-blood-text">capitaine</span>}
+              </span>
+              {s.roleName && <span className="truncate font-serif text-[2.6vmin] italic text-blood-text">{s.roleName}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <span className="font-display text-[2.6vmin] font-medium uppercase tracking-[0.2em] text-muted">{view.aliveCount} âmes demeurent</span>
+    </Frame>
+  )
+}
+
+function Composition({ view }: { view: PublicView }) {
+  return (
+    <Frame kicker="Les cartes en jeu">
+      <ul className="columns-2 gap-x-[8vmin] text-left">
+        {(view.composition ?? []).map(r => (
+          <li key={r.roleName} className="flex items-baseline space-x-[2vmin] py-[0.6vmin] font-serif text-[4vmin]">
+            <span className="w-[5vmin] text-right font-display font-bold tabular-nums text-blood-text">{r.count}</span>
+            <span>{r.roleName}</span>
+          </li>
+        ))}
+      </ul>
+    </Frame>
+  )
+}
+
+function Victory({ view }: { view: PublicView }) {
+  const cards = view.finalReveal ?? []
+  return (
+    <Frame kicker="Fin de la partie">
+      <h1 className={`font-display font-bold tracking-[0.06em] ${cards.length > 0 ? 'text-[7vmin]' : 'text-[11vmin]'}`}>{view.victory?.title ?? 'La partie est terminée'}</h1>
+      <p className="max-w-[110vmin] font-serif text-[3.2vmin] text-bone-dim">{view.victory?.description}</p>
+      {cards.length > 0 && (
+        <ul className="grid w-full max-w-[150vmin] grid-cols-4 gap-x-[3vmin] gap-y-[1.4vmin] pt-[1vmin]">
+          {cards.map(c => (
+            <li key={c.seat} className="flex flex-col border-b border-rule pb-[0.6vmin] text-left">
+              <span className={`truncate font-display text-[3vmin] font-bold ${c.alive ? '' : 'text-muted line-through'}`}>{c.name}</span>
+              <span className="truncate font-serif text-[2.4vmin] italic text-blood-text">
+                {c.roleName}{c.tags.length > 0 && <span className="text-muted"> · {c.tags.join(' · ')}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Frame>
+  )
+}
+
+/** Test card: the corner marks must all be visible, or the TV is cropping the picture (overscan). */
+function TestCard() {
+  const [size, setSize] = useState(() => `${window.innerWidth} × ${window.innerHeight}`)
+  useEffect(() => {
+    const onResize = () => setSize(`${window.innerWidth} × ${window.innerHeight}`)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const corner = 'absolute h-[8vmin] w-[8vmin] border-blood-go'
+  return (
+    <div className="relative flex h-full flex-col items-center justify-center space-y-[2vmin] bg-ink text-center">
+      <span className={`${corner} left-0 top-0 border-l-[6px] border-t-[6px]`} />
+      <span className={`${corner} right-0 top-0 border-r-[6px] border-t-[6px]`} />
+      <span className={`${corner} bottom-0 left-0 border-b-[6px] border-l-[6px]`} />
+      <span className={`${corner} bottom-0 right-0 border-b-[6px] border-r-[6px]`} />
+      <h1 className="font-display text-[9vmin] font-bold tracking-[0.08em]">Mire</h1>
+      <p className="font-serif text-[4vmin] text-bone-dim">Les quatre coins rouges doivent être entièrement visibles.</p>
+      <p className="font-sans text-[3vmin] tabular-nums text-muted">{size}</p>
+    </div>
+  )
+}
+
 function Screen({ view }: { view: PublicView }) {
-  if (view.phase === 'setup') {
+  if (view.phase === 'setup' && view.screen !== 'test') {
     return (
       <Frame kicker="Les Loups-Garous de">
         <h1 className="font-display text-[14vmin] font-bold tracking-[0.08em]">Thiercelieux</h1>
@@ -135,13 +218,21 @@ function Screen({ view }: { view: PublicView }) {
       return <Debate view={view} />
     case 'vote':
       return <Vote view={view} />
-    case 'victory':
+    case 'village':
+      return <Village view={view} />
+    case 'test':
+      return <TestCard />
+    case 'composition':
+      return <Composition view={view} />
+    case 'captain':
       return (
-        <Frame kicker="Fin de la partie">
-          <h1 className="font-display text-[11vmin] font-bold tracking-[0.06em]">{view.victory?.title ?? 'La partie est terminée'}</h1>
-          <p className="max-w-[80vmin] font-serif text-[4.5vmin] text-bone-dim">{view.victory?.description}</p>
+        <Frame kicker={`Jour ${view.roundNumber} · Le village a choisi`}>
+          <h1 className="font-display text-[14vmin] font-bold leading-none tracking-[0.06em]">{view.captain ?? 'Pas de capitaine'}</h1>
+          {view.captain && <p className="font-serif text-[4.5vmin] italic text-bone-dim">est élu Capitaine. En cas d'égalité, il tranche.</p>}
         </Frame>
       )
+    case 'victory':
+      return <Victory view={view} />
   }
 }
 

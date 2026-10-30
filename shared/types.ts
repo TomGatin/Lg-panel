@@ -23,6 +23,11 @@ export type RoleId =
   | 'carte_vierge'
   | 'salvateur'
   | 'corbeau'
+  | 'voleur'
+  | 'idiot_du_village'
+  | 'bouc_emissaire'
+  | 'servante_devouee'
+  | 'juge_begue'
 
 export interface RoleDefinition {
   id: RoleId
@@ -44,6 +49,7 @@ export type DeathReason =
   | 'chagrin'
   | 'loup_blanc'
   | 'epee_rouillee'
+  | 'bouc'
   | 'autre'
 
 export interface Player {
@@ -60,6 +66,8 @@ export interface Player {
   isCaptain: boolean
   elderLives: number
   foxLostPower: boolean
+  /** The Idiot survived the village's vote: card turned face up, he no longer votes. */
+  idiotRevealed: boolean
   wildChildModelId?: string
   dogWolfChoice?: 'village' | 'loup'
 }
@@ -143,6 +151,21 @@ export interface GameState {
   lastDeathIds: string[]
   /** Ids of the players found dead at the last dawn (the morning announcement). */
   dawnDeathIds: string[]
+  /** Every card dealt at setup, in seat order, for the public composition screen. */
+  composition: RoleId[]
+  /** The Voleur's seat, the two cards left aside, and the one he took (none: he kept his card). */
+  thief?: { playerId: string; cards: RoleId[]; took?: RoleId }
+  judgeUsed: boolean
+  /** Night step of the Carte Personnalisée, written by the MJ at setup. */
+  customStep?: CustomStep
+  /** Turn label when the current captain was named, so the régie announces it once. */
+  captainRound?: string
+}
+
+export interface CustomStep {
+  title: string
+  spokenPrompt: string
+  firstNightOnly: boolean
 }
 
 export interface SetupPlayer {
@@ -152,7 +175,11 @@ export interface SetupPlayer {
 }
 
 export type GameAction =
-  | { type: 'SETUP_GAME'; players: SetupPlayer[] }
+  | { type: 'SETUP_GAME'; players: SetupPlayer[]; thiefCards?: RoleId[]; customStep?: CustomStep }
+  | { type: 'THIEF_SWAP'; roleId?: RoleId }
+  | { type: 'SCAPEGOAT' }
+  | { type: 'SERVANT_TAKE_ROLE' }
+  | { type: 'JUDGE_SECOND_VOTE' }
   | { type: 'RESET_GAME' }
   | { type: 'TOGGLE_LIFE'; playerId: string; reason?: DeathReason }
   | { type: 'ELIMINATE_BY_VOTE'; playerId: string }
@@ -173,6 +200,7 @@ export type GameAction =
   | { type: 'START_TIMER'; durationSeconds?: number }
   | { type: 'PAUSE_TIMER' }
   | { type: 'RESET_TIMER'; durationSeconds?: number }
+  | { type: 'ADJUST_TIMER'; seconds: number }
   | { type: 'ACCUSE'; playerId: string }
   | { type: 'UNACCUSE'; playerId: string }
   | { type: 'ADJUST_VOTES'; playerId: string; delta: number }
@@ -186,13 +214,12 @@ export interface ActionContext {
 
 // --- Show (régie) -----------------------------------------------------------
 
-export type ScreenView = 'night' | 'day' | 'reveal' | 'debate' | 'vote' | 'victory' | 'blackout'
-export type SfxId = 'wolves' | 'rooster' | 'bell' | 'gunshot' | 'witch' | 'flute' | 'bear' | 'crow' | 'victory_village' | 'victory_wolves'
+export type ScreenView = 'night' | 'day' | 'reveal' | 'debate' | 'vote' | 'victory' | 'blackout' | 'village' | 'composition' | 'captain' | 'test'
+export type SfxId = 'wolves' | 'rooster' | 'bell' | 'gunshot' | 'witch' | 'flute' | 'bear' | 'crow' | 'announcement' | 'victory_village' | 'victory_wolves'
 export type AmbienceId = 'night' | 'day' | 'none'
 
 export type LightCommand =
   | { kind: 'scene'; name: string }
-  | { kind: 'target'; seat: number; color: string }
   | { kind: 'strobe' }
   | { kind: 'blackout' }
   | { kind: 'full' }
@@ -202,9 +229,11 @@ export interface CueEffects {
   ambience?: AmbienceId
   light?: LightCommand
   screen?: ScreenView
+  /** Players the reveal screen announces; without it, the deaths of the last action. */
+  reveal?: string[]
 }
 
-export type CueKind = 'nightfall' | 'night_step' | 'daybreak' | 'reveal' | 'bear' | 'crow' | 'debate' | 'vote' | 'death' | 'hunter' | 'victory'
+export type CueKind = 'nightfall' | 'night_step' | 'daybreak' | 'reveal' | 'bear' | 'crow' | 'debate' | 'vote' | 'death' | 'hunter' | 'captain' | 'victory'
 
 export interface Cue {
   id: string
@@ -241,6 +270,10 @@ export interface ShowState {
   autoKinds: CueKind[]
   audioOutput: AudioOutput
   volumes: Volumes
+  /** Deaths the reveal screen shows, set by the cue that put it up. */
+  revealIds?: string[]
+  /** The village screen shows who is dead and what they were: some tables find that too helpful. */
+  villageScreen: boolean
 }
 
 export type ShowCommand =
@@ -255,10 +288,13 @@ export type ShowCommand =
   | { kind: 'auto'; cueKind: CueKind; on: boolean }
   | { kind: 'audioOutput'; target: AudioOutput }
   | { kind: 'volume'; master?: number; ambience?: number }
+  | { kind: 'villageScreen'; on: boolean }
+  | { kind: 'testLights' }
 
 // --- Projections --------------------------------------------------------------
 
 export interface PublicDeath {
+  seat: number
   name: string
   roleName: string
   roleId: RoleId
@@ -272,13 +308,29 @@ export interface PublicView {
   screen: ScreenView
   aliveCount: number
   timer: GameTimer
-  accused: { name: string; votes: number }[]
+  accused: { seat: number; name: string; votes: number }[]
   lastDeaths: PublicDeath[]
   /** Whether lastDeaths is the morning announcement or a death during the day (vote, hunter). */
   deathMoment: 'dawn' | 'day'
   victory?: { title: string; description: string }
+  captain?: string
+  /** Set only on the village screen, when the régie allows it. Roles of the living never appear. */
+  village?: PublicSeat[]
+  /** Every card turned face up, on the victory screen only. */
+  finalReveal?: (PublicSeat & { tags: string[] })[]
+  /** Set only on the composition screen. */
+  composition?: { roleName: string; count: number }[]
   /** Set only while the sound goes out through this screen. */
   audio?: ShowAudio
+}
+
+export interface PublicSeat {
+  seat: number
+  name: string
+  alive: boolean
+  captain: boolean
+  /** Role of a dead player, or of the Idiot once revealed. */
+  roleName?: string
 }
 
 export interface CompositionPreset {

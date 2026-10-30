@@ -1,7 +1,7 @@
 import { ROLES } from './roles'
 import { GameState, Player, RoleId, Winner } from './types'
 
-const WOLF_ROLES: RoleId[] = ['loup_garou', 'grand_mechant_loup', 'infect_pere_des_loups', 'loup_blanc']
+export const WOLF_ROLES: RoleId[] = ['loup_garou', 'grand_mechant_loup', 'infect_pere_des_loups', 'loup_blanc']
 
 // Infection, Chien-Loup and Enfant Sauvage make the werewolf side dynamic.
 export function isPlayerWerewolf(player: Player, allPlayers: Player[]): boolean {
@@ -77,6 +77,7 @@ export function getFoxResult(targetId: string, players: Player[]): FoxResult | n
 }
 
 export type NightStepId =
+  | 'voleur'
   | 'cupidon'
   | 'amoureux'
   | 'deux_soeurs'
@@ -85,6 +86,7 @@ export type NightStepId =
   | 'salvateur'
   | 'voyante'
   | 'renard'
+  | 'carte_vierge'
   | 'loups_garous'
   | 'grand_mechant_loup'
   | 'loup_blanc'
@@ -116,6 +118,12 @@ export function getNightSteps(state: GameState): NightStep[] {
   const push = (step: Omit<NightStep, 'playerIds'>, who: Player[]) => steps.push({ ...step, playerIds: who.map(p => p.id) })
 
   if (roundNumber === 1) {
+    const thief = players.find(p => p.id === state.thief?.playerId && p.isAlive)
+    if (thief) {
+      push({ id: 'voleur', title: 'Le Voleur', roleId: 'voleur',
+        spokenPrompt: ROLES.voleur.spokenPrompt ?? '',
+        instructions: 'Touchez la carte qu\'il prend, ou validez s\'il garde la sienne.' }, [thief])
+    }
     const cupidon = first('cupidon')
     if (cupidon) {
       push({ id: 'cupidon', title: 'Cupidon', roleId: 'cupidon',
@@ -164,6 +172,12 @@ export function getNightSteps(state: GameState): NightStep[] {
     push({ id: 'renard', title: 'Le Renard', roleId: 'renard',
       spokenPrompt: 'Le Renard se réveille et me désigne un joueur central à flairer.',
       instructions: 'Touchez le joueur central : le panel vérifie le trio.' }, [renard])
+  }
+
+  const custom = first('carte_vierge')
+  if (custom && state.customStep?.spokenPrompt.trim() && (!state.customStep.firstNightOnly || roundNumber === 1) && hasPower(state, 'carte_vierge')) {
+    push({ id: 'carte_vierge', title: state.customStep.title || ROLES.carte_vierge.name, roleId: 'carte_vierge',
+      spokenPrompt: state.customStep.spokenPrompt, instructions: 'Rôle maison : rien à saisir.' }, [custom])
   }
 
   const wolves = players.filter(p => p.isAlive && isPlayerWerewolf(p, players))

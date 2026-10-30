@@ -1,17 +1,17 @@
-import { mkdtempSync, readFileSync, appendFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { buildCues, nextCue } from '../shared/cues'
+import { describe, expect, it, vi } from 'vitest'
+import { buildCues, mjNextCue, nextCue, startsDebate } from '../shared/cues'
 import { projectPublic } from '../shared/project'
-import { SfxId, ShowState } from '../shared/types'
+import { LightCommand, SfxId, ShowState } from '../shared/types'
 import { FakeLight } from '../server/light'
 import { ShowController } from '../server/show'
 import { GameStore } from '../server/store'
 import { Game } from './helpers'
 
 const show = (screen: ShowState['screen']): ShowState =>
-  ({ firedCueIds: [], skippedCueIds: [], screen, ambience: 'none', autoKinds: [], audioOutput: 'public', volumes: { master: 0.8, ambience: 0.5 } })
+  ({ firedCueIds: [], skippedCueIds: [], screen, ambience: 'none', autoKinds: [], audioOutput: 'public', volumes: { master: 0.8, ambience: 0.5 }, villageScreen: false })
 
 describe('public projection', () => {
   it('never leaks living roles, lovers, infection or night targets', () => {
@@ -19,8 +19,8 @@ describe('public projection', () => {
     g.do({ type: 'TOGGLE_LOVER', playerId: g.id(4) }, { type: 'TOGGLE_LOVER', playerId: g.id(5) },
       { type: 'SET_NIGHT_TARGET', key: 'seerTargetId', playerId: g.id(1) },
       { type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(6) }, { type: 'SET_INFECT_VICTIM', infect: true })
-    for (const screen of ['night', 'day', 'reveal', 'debate', 'vote', 'victory'] as const) {
-      const json = JSON.stringify(projectPublic(g.state, show(screen)))
+    for (const screen of ['night', 'day', 'reveal', 'debate', 'vote', 'victory', 'village', 'captain'] as const) {
+      const json = JSON.stringify(projectPublic(g.state, { ...show(screen), villageScreen: true }))
       for (const secret of ['Infect', 'Voyante', 'Cupidon', 'Lover', 'Infected', 'Charm', 'p1', 'seer']) {
         expect(json).not.toContain(secret)
       }
@@ -30,12 +30,82 @@ describe('public projection', () => {
   it('reveals the role of the dead on the reveal screen only', () => {
     const g = new Game(['loup_garou', 'voyante', 'villageois', 'villageois'], ['Ana', 'Bea', 'Cid', 'Dan'])
     g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
-    expect(projectPublic(g.state, show('reveal')).lastDeaths).toEqual([{ name: 'Bea', roleId: 'voyante', roleName: 'Voyante' }])
+    expect(projectPublic(g.state, show('reveal')).lastDeaths).toEqual([{ seat: 2, name: 'Bea', roleId: 'voyante', roleName: 'Voyante' }])
     expect(projectPublic(g.state, show('day')).lastDeaths).toEqual([])
   })
 })
 
+describe('reveal', () => {
+  it('keeps the night victims on the morning reveal after the hunter shot', () => {
+    const g = new Game(['loup_garou', 'chasseur', 'villageois', 'villageois', 'villageois', 'loup_garou'], ['Ana', 'Bea', 'Cid', 'Dan', 'Eve', 'Fay'])
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
+    g.do({ type: 'EXECUTE_HUNTER_SHOT', targetPlayerId: g.id(3) })
+    const ctl = new ShowController(undefined, new FakeLight(), () => undefined)
+    ctl.command({ kind: 'fire', cueId: 'd1-reveal' }, buildCues(g.state))
+    const view = projectPublic(g.state, ctl.state)
+    expect(view.lastDeaths.map(d => d.name)).toEqual(['Bea'])
+    expect(view.deathMoment).toBe('dawn')
+    ctl.command({ kind: 'fire', cueId: `d1-death-${g.id(3)}` }, buildCues(g.state))
+    expect(projectPublic(g.state, ctl.state).lastDeaths.map(d => d.name)).toEqual(['Cid'])
+  })
+
+  it('turns every card face up on the victory screen only', () => {
+    const g = new Game(['loup_garou', 'villageois', 'villageois'], ['Ana', 'Bea', 'Cid'])
+    expect(projectPublic(g.state, show('victory')).finalReveal).toBeUndefined()
+    g.do({ type: 'TOGGLE_LOVER', playerId: g.id(1) }, { type: 'TOGGLE_LOVER', playerId: g.id(3) })
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
+    expect(g.state.phase).toBe('game_over')
+    expect(projectPublic(g.state, show('victory')).finalReveal?.map(c => [c.roleName, c.tags])).toEqual([
+      ['Loup-Garou', ['amoureux']], ['Simple Villageois', []], ['Simple Villageois', ['amoureux']]])
+  })
+})
+
+describe('village screen', () => {
+  it('shows the table with the roles of the dead only, and nothing while disabled', () => {
+    const g = new Game(['loup_garou', 'voyante', 'villageois', 'villageois'], ['Ana', 'Bea', 'Cid', 'Dan'])
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
+    g.do({ type: 'ASSIGN_CAPTAIN', playerId: g.id(3) })
+    const village = projectPublic(g.state, { ...show('village'), villageScreen: true }).village
+    expect(village?.map(s => s.roleName)).toEqual([undefined, 'Voyante', undefined, undefined])
+    expect(village?.find(s => s.captain)?.name).toBe('Cid')
+    expect(projectPublic(g.state, show('village')).village).toBeUndefined()
+  })
+
+  it('refuses the village screen until the régie allows it', () => {
+    const ctl = new ShowController(undefined, new FakeLight(), () => undefined)
+    expect(ctl.command({ kind: 'screen', view: 'village' }, [])).toBeDefined()
+    ctl.command({ kind: 'villageScreen', on: true }, [])
+    expect(ctl.command({ kind: 'screen', view: 'village' }, [])).toBeUndefined()
+    ctl.command({ kind: 'villageScreen', on: false }, [])
+    expect(ctl.state.screen).toBe('blackout')
+  })
+
+  it('counts the composition without seats', () => {
+    const g = new Game(['loup_garou', 'villageois', 'loup_garou', 'voyante'])
+    expect(projectPublic(g.state, show('composition')).composition).toEqual([
+      { roleName: 'Loup-Garou', count: 2 }, { roleName: 'Voyante', count: 1 }, { roleName: 'Simple Villageois', count: 1 }])
+  })
+})
+
 describe('cues', () => {
+  it('starts the debate clock when the debate goes up, once', () => {
+    const g = new Game(['loup_garou', 'villageois', 'villageois', 'villageois'])
+    expect(startsDebate('night', 'debate', g.state)).toBe(false)
+    g.dawn()
+    expect(startsDebate('reveal', 'debate', g.state)).toBe(true)
+    expect(startsDebate('debate', 'debate', g.state)).toBe(false)
+    g.do({ type: 'START_TIMER' }, { type: 'PAUSE_TIMER' })
+    expect(startsDebate('vote', 'debate', g.state)).toBe(false)
+  })
+
+  it('announces a newly elected captain once', () => {
+    const g = new Game(['loup_garou', 'villageois', 'villageois', 'villageois'])
+    g.dawn().do({ type: 'ASSIGN_CAPTAIN', playerId: g.id(3) })
+    expect(buildCues(g.state).find(c => c.kind === 'captain')?.effects).toEqual({ screen: 'captain', sfx: 'announcement' })
+    g.do({ type: 'ADVANCE_TO_NIGHT' }).dawn()
+    expect(buildCues(g.state).some(c => c.kind === 'captain')).toBe(false)
+  })
+
   it('arms the wolves cue once the steps before it are validated', () => {
     const g = new Game(['loup_garou', 'voyante', 'villageois', 'villageois'])
     const wolves = () => buildCues(g.state).find(c => c.stepId === 'loups_garous')
@@ -67,7 +137,40 @@ describe('cues', () => {
   it('caws on the player the corbeau marked', () => {
     const g = new Game(['loup_garou', 'corbeau', 'villageois', 'villageois', 'villageois'])
     g.do({ type: 'SET_NIGHT_TARGET', key: 'corbeauTargetId', playerId: g.id(4) }).dawn()
-    expect(buildCues(g.state).find(c => c.kind === 'crow')?.effects).toMatchObject({ sfx: 'crow', light: { seat: 4 } })
+    expect(buildCues(g.state).find(c => c.kind === 'crow')?.effects).toEqual({ sfx: 'crow' })
+  })
+
+  it('plays the death effect for the whole room, never on a seat', () => {
+    const calm = new Game(['loup_garou', 'villageois', 'villageois', 'villageois'])
+    calm.dawn()
+    expect(buildCues(calm.state).find(c => c.kind === 'reveal')?.effects.light).toBeUndefined()
+    const g = new Game(['loup_garou', 'chasseur', 'villageois', 'villageois', 'villageois', 'villageois', 'loup_garou'])
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(3) }).dawn()
+    expect(buildCues(g.state).find(c => c.kind === 'reveal')?.effects.light).toEqual({ kind: 'scene', name: 'death' })
+    g.do({ type: 'ELIMINATE_BY_VOTE', playerId: g.id(2) }, { type: 'EXECUTE_HUNTER_SHOT', targetPlayerId: g.id(4) })
+    const deaths = buildCues(g.state).filter(c => c.kind === 'death')
+    expect(deaths.map(c => c.effects.light)).toEqual([{ kind: 'scene', name: 'death' }, { kind: 'strobe' }])
+  })
+
+  it('lets the MJ step through the morning up to the debate, not beyond', () => {
+    const g = new Game(['loup_garou', 'corbeau', 'villageois', 'villageois', 'villageois', 'villageois'])
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'corbeauTargetId', playerId: g.id(4) },
+      { type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(3) }).dawn()
+    const ctl = new ShowController(undefined, new FakeLight(), () => undefined)
+    const played: string[] = []
+    for (let cue = mjNextCue(buildCues(g.state), ctl.state); cue; cue = mjNextCue(buildCues(g.state), ctl.state)) {
+      played.push(cue.kind)
+      ctl.command({ kind: 'go' }, buildCues(g.state))
+    }
+    expect(played).toEqual(['daybreak', 'reveal', 'crow', 'debate'])
+  })
+
+  it('plays a dawn Hunter\'s shot in the morning, before the debate', () => {
+    const g = new Game(['loup_garou', 'chasseur', 'villageois', 'villageois', 'villageois', 'loup_garou'])
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
+    g.do({ type: 'EXECUTE_HUNTER_SHOT', targetPlayerId: g.id(3) })
+    const kinds = buildCues(g.state).map(c => c.kind)
+    expect(kinds.indexOf('death')).toBeLessThan(kinds.indexOf('debate'))
   })
 
   it('ends on the pack for a wolf win', () => {
@@ -119,6 +222,29 @@ describe('store', () => {
     expect(reloaded.canUndo).toBe(true)
     expect(readFileSync(file, 'utf8').split('\n').length).toBeGreaterThan(5)
   })
+
+  it('archives the previous game when a new one starts', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lg-'))
+    const file = join(dir, 'session.jsonl')
+    const players = [
+      { name: 'A', roleId: 'loup_garou' as const, seatNumber: 1 },
+      { name: 'B', roleId: 'villageois' as const, seatNumber: 2 },
+      { name: 'C', roleId: 'villageois' as const, seatNumber: 3 }
+    ]
+    let t = 5_000
+    const store = new GameStore(file, () => (t += 1000))
+    store.dispatch({ type: 'SETUP_GAME', players })
+    store.dispatch({ type: 'ADVANCE_TO_DAY' })
+    store.dispatch({ type: 'RESET_GAME' })
+    store.dispatch({ type: 'SETUP_GAME', players })
+    expect(readdirSync(join(dir, 'games'))).toHaveLength(1)
+    expect(store.undo()).toBe(true)
+    expect(store.state.phase).toBe('setup')
+    expect(store.undo()).toBe(false)
+    store.redo()
+    const reloaded = new GameStore(file)
+    expect(reloaded.state).toEqual(store.state)
+  })
 })
 
 describe('show sound', () => {
@@ -127,6 +253,18 @@ describe('show sound', () => {
     const state: ShowState = { ...show('night'), ambience: 'night' }
     expect(projectPublic(g.state, state).audio).toEqual({ ambience: 'night', volumes: { master: 0.8, ambience: 0.5 } })
     expect(projectPublic(g.state, { ...state, audioOutput: 'regie' }).audio).toBeUndefined()
+  })
+
+  it('tests the lights with full on, then black', () => {
+    vi.useFakeTimers()
+    const sent: LightCommand[] = []
+    const light = new FakeLight()
+    light.send = async command => { sent.push(command) }
+    new ShowController(undefined, light, () => undefined).command({ kind: 'testLights' }, [])
+    expect(sent).toEqual([{ kind: 'full' }])
+    vi.advanceTimersByTime(2000)
+    expect(sent).toEqual([{ kind: 'full' }, { kind: 'blackout' }])
+    vi.useRealTimers()
   })
 
   it('emits one-shot effects, cuts them, and clamps volumes', () => {

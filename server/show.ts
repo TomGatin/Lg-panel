@@ -13,8 +13,11 @@ const initialShow = (): ShowState => ({
   ambience: 'none',
   autoKinds: [],
   audioOutput: 'public',
-  volumes: { master: 0.8, ambience: 0.5 }
+  volumes: { master: 0.8, ambience: 0.5 },
+  villageScreen: false
 })
+
+const LIGHT_TEST_MS = 2000
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
 
@@ -58,7 +61,9 @@ export class ShowController {
         if (!this.current.skippedCueIds.includes(cmd.cueId)) this.current.skippedCueIds.push(cmd.cueId)
         break
       case 'screen':
+        if (cmd.view === 'village' && !this.current.villageScreen) return 'L\'écran Village est désactivé.'
         this.current.screen = cmd.view
+        this.current.revealIds = undefined
         break
       case 'sfx':
         this.emitAudio(cmd.id)
@@ -79,6 +84,15 @@ export class ShowController {
         break
       case 'audioOutput':
         this.current.audioOutput = cmd.target
+        break
+      case 'villageScreen':
+        this.current.villageScreen = cmd.on
+        if (!cmd.on && this.current.screen === 'village') this.current.screen = 'blackout'
+        break
+      case 'testLights':
+        // Full on, then back to black: enough to see every fixture answers.
+        void this.light.send({ kind: 'full' })
+        setTimeout(() => void this.light.send({ kind: 'blackout' }), LIGHT_TEST_MS).unref()
         break
       case 'volume':
         this.current.volumes = {
@@ -119,7 +133,10 @@ export class ShowController {
   }
 
   private applyEffects(e: CueEffects): void {
-    if (e.screen) this.current.screen = e.screen
+    if (e.screen) {
+      this.current.screen = e.screen
+      this.current.revealIds = e.reveal
+    }
     if (e.ambience) this.current.ambience = e.ambience
     if (e.light) void this.light.send(e.light)
     if (e.sfx) this.emitAudio(e.sfx)

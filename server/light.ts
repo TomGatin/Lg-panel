@@ -45,7 +45,6 @@ export class HttpLight implements LightPort {
   private route(command: LightCommand): [string, object | undefined] {
     switch (command.kind) {
       case 'scene': return [`/api/scenes/${encodeURIComponent(command.name)}`, undefined]
-      case 'target': return ['/api/target', { seatId: command.seat, color: command.color }]
       case 'strobe': return ['/api/strobe', undefined]
       case 'blackout': return ['/api/blackout', undefined]
       case 'full': return ['/api/scenes/full', undefined]

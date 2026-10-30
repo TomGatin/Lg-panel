@@ -1,4 +1,5 @@
-import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { initialGameState, reduce, RuleError } from '../shared/reducer'
 import { ActionContext, GameAction, GameState } from '../shared/types'
 
@@ -10,6 +11,7 @@ type JournalEntry =
 /**
  * Canonical game state with unlimited undo/redo.
  * Every accepted change is appended to a JSONL journal; replaying it rebuilds the exact same history.
+ * Each new game starts a fresh journal: the previous one is moved to `games/` next to it.
  */
 export class GameStore {
   private past: GameState[] = []
@@ -37,6 +39,7 @@ export class GameStore {
   dispatch(action: GameAction): GameState {
     const ctx: ActionContext = { now: this.clock(), seq: this.seq + 1 }
     this.applyAction(action, ctx)
+    if (action.type === 'SETUP_GAME') this.archive(ctx.now)
     this.write({ kind: 'action', action, ctx })
     return this.current
   }
@@ -59,6 +62,8 @@ export class GameStore {
     this.future = []
     this.current = next
     this.seq = ctx.seq
+    // Undo stops at the composition screen: the previous game is archived, not part of this one.
+    if (action.type === 'SETUP_GAME') this.past = this.past.slice(-1)
   }
 
   private applyUndo(): boolean {
@@ -75,6 +80,13 @@ export class GameStore {
     this.past.push(this.current)
     this.current = next
     return true
+  }
+
+  private archive(now: number): void {
+    if (!this.journalPath || !existsSync(this.journalPath) || statSync(this.journalPath).size === 0) return
+    const dir = join(dirname(this.journalPath), 'games')
+    mkdirSync(dir, { recursive: true })
+    renameSync(this.journalPath, join(dir, `${new Date(now).toISOString().replace(/[:.]/g, '-')}.jsonl`))
   }
 
   private write(entry: JournalEntry): void {

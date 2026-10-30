@@ -1,7 +1,8 @@
-import { ArrowDown, ArrowUp, GripVertical, Plus, Save, Trash2, Users, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, GripVertical, Plus, Save, Shuffle, Trash2, Users, X } from 'lucide-react'
 import { PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { PRESETS, ROLES } from '../../shared/roles'
-import { CompositionPreset, RoleId, SetupPlayer } from '../../shared/types'
+import { WOLF_ROLES } from '../../shared/rules'
+import { CompositionPreset, CustomStep, RoleId, SetupPlayer } from '../../shared/types'
 import { useLive } from '../lib/live'
 
 interface Row {
@@ -10,9 +11,11 @@ interface Row {
 }
 
 const DRAFT_KEY = 'lg-setup-draft'
-const ROLE_IDS = Object.keys(ROLES) as RoleId[]
+const EXTRAS_KEY = 'lg-setup-extras'
+// Alphabetical, so a role is quick to find in the seat dropdowns.
+const ROLE_IDS = (Object.keys(ROLES) as RoleId[]).sort((a, b) => ROLES[a].name.localeCompare(ROLES[b].name, 'fr'))
 const SCROLL_EDGE = 64
-const WOLF_TEAM = new Set<RoleId>(['loup_garou', 'grand_mechant_loup', 'infect_pere_des_loups'])
+const WOLF_TEAM = new Set<RoleId>(WOLF_ROLES)
 
 function loadDraft(): Row[] {
   try {
@@ -22,6 +25,23 @@ function loadDraft(): Row[] {
     // Private mode or corrupted draft: start from the default preset.
   }
   return PRESETS[0].roles.map(roleId => ({ name: '', roleId }))
+}
+
+/** Setup choices beyond the seats: the Voleur's two cards and the Carte Personnalisée's night step. */
+interface Extras {
+  thiefCards: RoleId[]
+  customStep: CustomStep
+}
+
+function loadExtras(): Extras {
+  const fallback: Extras = { thiefCards: ['villageois', 'villageois'], customStep: { title: '', spokenPrompt: '', firstNightOnly: false } }
+  try {
+    const raw = localStorage.getItem(EXTRAS_KEY)
+    if (raw) return { ...fallback, ...(JSON.parse(raw) as Partial<Extras>) }
+  } catch {
+    // Same as the draft: a convenience only.
+  }
+  return fallback
 }
 
 function authQuery(): string {
@@ -40,13 +60,20 @@ export function Setup() {
   const [saved, setSaved] = useState<CompositionPreset[]>([])
   const [presetName, setPresetName] = useState('')
 
+  const [extras, setExtras] = useState<Extras>(loadExtras)
   useEffect(() => {
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(rows))
+      localStorage.setItem(EXTRAS_KEY, JSON.stringify(extras))
     } catch {
       // Draft persistence is a convenience only.
     }
-  }, [rows])
+  }, [rows, extras])
+  const hasThief = rows.some(r => r.roleId === 'voleur')
+  const hasCustom = rows.some(r => r.roleId === 'carte_vierge')
+  const setThiefCard = (i: number, roleId: RoleId) =>
+    setExtras(x => ({ ...x, thiefCards: x.thiefCards.map((r, j) => (j === i ? roleId : r)) }))
+  const setCustom = (patch: Partial<CustomStep>) => setExtras(x => ({ ...x, customStep: { ...x.customStep, ...patch } }))
 
   // Registrants of the evening, fetched in the background and applied only on tap.
   const [members, setMembers] = useState<string[] | null>(null)
@@ -115,6 +142,16 @@ export function Setup() {
   }
   const endDrag = () => setDragged(null)
 
+  // Deal the cards at random: names keep their seats, the MJ hands out the cards as shown.
+  const shuffleRoles = () => setRows(rs => {
+    const roles = rs.map(r => r.roleId)
+    for (let i = roles.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[roles[i], roles[j]] = [roles[j], roles[i]]
+    }
+    return rs.map((r, i) => ({ ...r, roleId: roles[i] }))
+  })
+
   const applyPreset = (p: CompositionPreset) =>
     setRows(rs => p.roles.map((roleId, i) => ({ name: rs[i]?.name ?? '', roleId })))
 
@@ -136,7 +173,9 @@ export function Setup() {
 
   const start = () => {
     const players: SetupPlayer[] = rows.map((r, i) => ({ name: r.name, roleId: r.roleId, seatNumber: i + 1 }))
-    dispatch({ type: 'SETUP_GAME', players })
+    dispatch({ type: 'SETUP_GAME', players,
+      thiefCards: hasThief ? extras.thiefCards : undefined,
+      customStep: hasCustom ? extras.customStep : undefined })
   }
 
   return (
@@ -200,9 +239,41 @@ export function Setup() {
               className="flex h-11 w-11 items-center justify-center text-muted hover:text-blood-text"><Trash2 size={18} /></button>
           </div>
         ))}
-        <button type="button" onClick={() => setRows(rs => [...rs, { name: '', roleId: 'villageois' }])}
-          className="flex min-h-[48px] items-center justify-center gap-2 rounded-md bg-tile text-[15px] font-semibold"><Plus size={18} />Ajouter un joueur</button>
+        <div className="flex gap-1.5">
+          <button type="button" onClick={() => setRows(rs => [...rs, { name: '', roleId: 'villageois' }])}
+            className="flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-md bg-tile text-[15px] font-semibold"><Plus size={18} />Ajouter un joueur</button>
+          <button type="button" onClick={shuffleRoles} disabled={rows.length < 2}
+            className="flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-md bg-tile text-[15px] font-semibold"><Shuffle size={18} />Mélanger les rôles</button>
+        </div>
       </section>
+
+      {hasThief && (
+        <section className="flex flex-col gap-1.5">
+          <span className="regie-label">Cartes laissées au Voleur</span>
+          <div className="flex gap-1.5">
+            {extras.thiefCards.map((roleId, i) => (
+              <select key={i} value={roleId} onChange={e => setThiefCard(i, e.target.value as RoleId)} aria-label={`Carte ${i + 1} du Voleur`}
+                className="min-h-[44px] min-w-0 flex-1 rounded border border-rule bg-ink px-1 text-[15px]">
+                {ROLE_IDS.filter(id => id !== 'voleur').map(id => <option key={id} value={id}>{ROLES[id].name}</option>)}
+              </select>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {hasCustom && (
+        <section className="flex flex-col gap-1.5">
+          <span className="regie-label">Carte Personnalisée · étape de nuit</span>
+          <input value={extras.customStep.title} onChange={e => setCustom({ title: e.target.value })} placeholder="Nom de l'étape (ex. Le Sectaire)"
+            aria-label="Nom de l'étape" className="min-h-[44px] rounded border border-rule bg-ink px-2 text-[16px]" />
+          <input value={extras.customStep.spokenPrompt} onChange={e => setCustom({ spokenPrompt: e.target.value })} placeholder="Phrase à dire (vide : pas d'étape de nuit)"
+            aria-label="Phrase à dire" className="min-h-[44px] rounded border border-rule bg-ink px-2 text-[16px]" />
+          <label className="flex items-center gap-2 text-[14px] text-muted">
+            <input type="checkbox" checked={extras.customStep.firstNightOnly} onChange={e => setCustom({ firstNightOnly: e.target.checked })} className="h-4 w-4 accent-blood-go" />
+            Première nuit seulement
+          </label>
+        </section>
+      )}
 
       {warnings.length > 0 && (
         <ul className="flex flex-col gap-1 rounded-md bg-blood-deep p-3 text-[14px] text-bone">
