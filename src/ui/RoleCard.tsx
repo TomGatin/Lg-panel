@@ -2,16 +2,18 @@ import { useState } from 'react'
 import { ROLES } from '../../shared/roles'
 import { RoleId } from '../../shared/types'
 
-/** Scan of the physical card from public/cards/<roleId>.jpg, or an engraved placeholder. */
+export const CARD_EXTENSIONS = ['png', 'webp']
+
+/** Scan of the physical card from public/cards/<roleId>.png (or .webp), or an engraved placeholder. */
 export function RoleCard({ roleId, className = '' }: { roleId: RoleId; className?: string }) {
-  const [missing, setMissing] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const name = ROLES[roleId].name
-  if (!missing) {
+  if (attempt < CARD_EXTENSIONS.length) {
     return (
       <img
-        src={`/cards/${roleId}.jpg`}
+        src={`/cards/${roleId}.${CARD_EXTENSIONS[attempt]}`}
         alt={`Carte ${name}`}
-        onError={() => setMissing(true)}
+        onError={() => setAttempt(attempt + 1)}
         className={`h-full w-full object-contain ${className}`}
       />
     )

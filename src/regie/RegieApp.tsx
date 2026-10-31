@@ -11,6 +11,7 @@ import { useLive } from '../lib/live'
 import { useShowAudio } from '../lib/useShowAudio'
 import { Setup } from '../setup/Setup'
 import { DeniedScreen, ErrorToast, Loading } from '../ui/Feedback'
+import { CARD_EXTENSIONS } from '../ui/RoleCard'
 
 const SCREENS: ScreenView[] = ['night', 'day', 'reveal', 'debate', 'vote', 'village', 'composition', 'captain', 'victory', 'blackout']
 // Pad n is played by the digit key n.
@@ -202,7 +203,7 @@ function PrepPanel({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioRea
     fetch('/api/assets').then(r => r.json() as Promise<{ audio: string[]; cards: string[] }>).then(setAssets).catch(() => setAssets(null))
   }, [])
   const missingSounds = assets ? SOUND_FILES.filter(f => !assets.audio.includes(f)) : []
-  const missingCards = assets ? CARD_ROLES.filter(id => !assets.cards.includes(`${id}.jpg`)) : []
+  const missingCards = assets ? CARD_ROLES.filter(id => !CARD_EXTENSIONS.some(ext => assets.cards.includes(`${id}.${ext}`))) : []
   const row = 'flex flex-wrap items-center gap-2'
   const button = 'min-h-[40px] rounded-md bg-tile px-3 text-[14px] font-semibold'
   return (

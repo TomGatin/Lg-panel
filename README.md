@@ -32,7 +32,7 @@ Tout est dans `data/` (ignoré par git) :
 
 ## Personnaliser
 
-- **Cartes** : déposer les scans dans `public/cards/<roleId>.jpg` (ex. `public/cards/voyante.jpg`). Les identifiants sont listés dans `shared/roles.ts`. Sans scan, une carte gravée de remplacement s'affiche.
+- **Cartes** : déposer les scans dans `public/cards/<roleId>.png` ou `.webp` (ex. `public/cards/voyante.png`). Les identifiants sont listés dans `shared/roles.ts`. Sans scan, une carte gravée de remplacement s'affiche.
 - **Sons** : `public/audio/<nom>.mp3`, noms listés dans `src/lib/audio.ts`. Garder le volume harmonisé (-16 LUFS pour les effets, -23 LUFS pour les ambiances) : le moteur ne corrige pas le volume fichier par fichier.
 - **light-engine** : les routes appelées sont isolées dans `server/light.ts` (`POST /api/scenes/:name`, `/api/strobe`, `/api/blackout`, `GET /api/status`). La lumière ne vise jamais un joueur : les morts déclenchent la scène `death` (le tir du Chasseur, le stroboscope), à créer dans light-engine aux côtés de `night`, `day`, `loups`, `sorciere`, `victory`…. Si l'API change, seul ce fichier est à modifier.
 
