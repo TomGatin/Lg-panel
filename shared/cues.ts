@@ -6,12 +6,15 @@ const STEP_EFFECTS: Partial<Record<NightStepId, CueEffects>> = {
   voyante: { light: { kind: 'scene', name: 'voyante' } },
   loups_garous: { sfx: 'wolves', light: { kind: 'scene', name: 'loups' } },
   grand_mechant_loup: { light: { kind: 'scene', name: 'loups' } },
-  loup_blanc: { light: { kind: 'scene', name: 'loup_blanc' } },
+  loup_blanc: { light: { kind: 'scene', name: 'loup-blanc' } },
   sorciere: { sfx: 'witch', light: { kind: 'scene', name: 'sorciere' } },
   joueur_de_flute: { sfx: 'flute', light: { kind: 'scene', name: 'flute' } }
 }
 
 // Lights never single out a player: deaths get one effect for the whole room.
+/** Scenes the cues call: they must exist under these ids in stagehand, which only accepts slugs. */
+export const LIGHT_SCENES = ['night', 'day', 'salvateur', 'voyante', 'loups', 'loup-blanc', 'sorciere', 'flute', 'death', 'victory', 'full']
+
 const DEATH_LIGHT = { kind: 'scene', name: 'death' } as const
 
 /**

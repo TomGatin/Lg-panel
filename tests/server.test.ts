@@ -267,6 +267,19 @@ describe('show sound', () => {
     vi.useRealTimers()
   })
 
+  it('lets a light command cancel the end of a test', () => {
+    vi.useFakeTimers()
+    const sent: LightCommand[] = []
+    const light = new FakeLight()
+    light.send = async command => { sent.push(command) }
+    const ctl = new ShowController(undefined, light, () => undefined)
+    ctl.command({ kind: 'testLights' }, [])
+    ctl.command({ kind: 'light', command: { kind: 'scene', name: 'night' } }, [])
+    vi.advanceTimersByTime(2000)
+    expect(sent).toEqual([{ kind: 'full' }, { kind: 'scene', name: 'night' }])
+    vi.useRealTimers()
+  })
+
   it('emits one-shot effects, cuts them, and clamps volumes', () => {
     const played: (SfxId | null)[] = []
     const ctl = new ShowController(undefined, new FakeLight(), sfx => played.push(sfx))

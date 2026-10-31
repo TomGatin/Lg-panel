@@ -18,6 +18,7 @@ export interface StaffSnapshot {
   canUndo: boolean
   canRedo: boolean
   lightStatus: LightStatus
+  lightMissing: string[]
   connected: Record<ClientRole, number>
   publicAudio: boolean
 }

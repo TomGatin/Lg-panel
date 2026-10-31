@@ -274,6 +274,8 @@ export interface ShowState {
   revealIds?: string[]
   /** The village screen shows who is dead and what they were: some tables find that too helpful. */
   villageScreen: boolean
+  /** The look on stage, sent again when the lights come back after an outage. */
+  lastLight?: LightCommand
 }
 
 export type ShowCommand =

@@ -10,7 +10,7 @@ import qrcode from 'qrcode-terminal'
 import { ROLES } from '../shared/roles'
 import { CompositionPreset, RoleId } from '../shared/types'
 import { Hub, isTrusted } from './hub'
-import { FakeLight, HttpLight, LightPort } from './light'
+import { FakeLight, LightPort, StagehandLight } from './light'
 import { LnbMembers } from './members'
 import { ShowController } from './show'
 import { GameStore } from './store'
@@ -60,7 +60,9 @@ function isPreset(value: unknown): value is CompositionPreset {
 
 const token = loadToken()
 const members = new LnbMembers(join(DATA_DIR, 'lnb.json'))
-const light: LightPort = process.env.LIGHT_ENGINE_URL ? new HttpLight(process.env.LIGHT_ENGINE_URL) : new FakeLight()
+const { STAGEHAND_URL, STAGEHAND_TOKEN, STAGEHAND_ROOM } = process.env
+const lightsWired = STAGEHAND_URL && STAGEHAND_TOKEN && STAGEHAND_ROOM
+const light: LightPort = lightsWired ? new StagehandLight(STAGEHAND_URL, STAGEHAND_TOKEN, STAGEHAND_ROOM) : new FakeLight()
 const store = new GameStore(join(DATA_DIR, 'session.jsonl'))
 const hub = new Hub(store, light, token,
   emit => new ShowController(join(DATA_DIR, 'show.json'), light, sfx => emit({ t: 'audio', sfx })))
@@ -115,7 +117,7 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, () =
   console.log(`  MJ (téléphone) : ${mjUrl}`)
   console.log(`  Régie (ce PC)  : http://localhost:${UI_PORT}/regie`)
   console.log(`  Écran public   : http://localhost:${UI_PORT}/public`)
-  console.log(`  Lumières       : ${process.env.LIGHT_ENGINE_URL ?? 'simulées (définir LIGHT_ENGINE_URL)'}\n`)
+  console.log(`  Lumières       : ${lightsWired ? `${STAGEHAND_URL}, salle ${STAGEHAND_ROOM}` : 'simulées (définir STAGEHAND_URL, STAGEHAND_TOKEN et STAGEHAND_ROOM)'}\n`)
   qrcode.generate(mjUrl, { small: true })
 }) as Server
 

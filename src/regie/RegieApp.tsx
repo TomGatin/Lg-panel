@@ -197,7 +197,7 @@ const CARD_ROLES = (Object.keys(ROLES) as RoleId[]).filter(id => id !== 'carte_v
 /** Before the doors open: every output answers, every file is there. */
 function PrepPanel({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioReady: boolean }) {
   const send = useLive(s => s.show)
-  const { show, connected, lightStatus } = snapshot
+  const { show, connected, lightStatus, lightMissing } = snapshot
   const [assets, setAssets] = useState<{ audio: string[]; cards: string[] } | null>(null)
   useEffect(() => {
     fetch('/api/assets').then(r => r.json() as Promise<{ audio: string[]; cards: string[] }>).then(setAssets).catch(() => setAssets(null))
@@ -221,6 +221,9 @@ function PrepPanel({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioRea
         <Pill ok={lightStatus !== 'down'} label={lightStatus === 'fake' ? 'Lumières simulées' : lightStatus === 'ok' ? 'Lumières OK' : 'Lumières injoignables'} />
         <button type="button" onClick={() => send({ kind: 'testLights' })} className={button}>Tester les lumières</button>
       </div>
+      {lightStatus === 'ok' && lightMissing.length > 0 && (
+        <p className="text-[13px] text-blood-text">Manquant dans stagehand : {lightMissing.join(', ')}</p>
+      )}
       {!audioReady && show.audioOutput === 'public' && (
         <p className="text-[13px] text-blood-text">Sur la TV : appuyer une fois sur OK de la télécommande pour activer le son.</p>
       )}

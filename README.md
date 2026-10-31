@@ -19,7 +19,7 @@ npm test        # règles, projection publique, conduite, undo/redo, rejeu du jo
 
 Le QR code contient un jeton d'accès (stocké dans `data/token.txt`). Sans lui, `/mj` et `/regie` refusent les connexions venant du réseau. Le PC qui fait tourner le serveur n'en a pas besoin.
 
-Variables d'environnement : `PORT` (3000), `LIGHT_ENGINE_URL` (sans elle, les lumières sont simulées dans la console), `LG_DATA_DIR` (`data/`).
+Variables d'environnement : `PORT` (3000), `LG_DATA_DIR` (`data/`), et pour les lumières `STAGEHAND_URL`, `STAGEHAND_TOKEN`, `STAGEHAND_ROOM` (si l'une manque, les lumières sont simulées dans la console).
 
 ## Données
 
@@ -34,7 +34,23 @@ Tout est dans `data/` (ignoré par git) :
 
 - **Cartes** : déposer les scans dans `public/cards/<roleId>.png` ou `.webp` (ex. `public/cards/voyante.png`). Les identifiants sont listés dans `shared/roles.ts`. Sans scan, une carte gravée de remplacement s'affiche.
 - **Sons** : `public/audio/<nom>.mp3`, noms listés dans `src/lib/audio.ts`. Garder le volume harmonisé (-16 LUFS pour les effets, -23 LUFS pour les ambiances) : le moteur ne corrige pas le volume fichier par fichier.
-- **light-engine** : les routes appelées sont isolées dans `server/light.ts` (`POST /api/scenes/:name`, `/api/strobe`, `/api/blackout`, `GET /api/status`). La lumière ne vise jamais un joueur : les morts déclenchent la scène `death` (le tir du Chasseur, le stroboscope), à créer dans light-engine aux côtés de `night`, `day`, `loups`, `sorciere`, `victory`…. Si l'API change, seul ce fichier est à modifier.
+- **Lumières** : voir ci-dessous.
+
+## Lumières
+
+Les lumières sont pilotées par [stagehand](../stagehand), un serveur séparé qui parle au DMX. Ses routes sont isolées dans `server/light.ts`.
+
+1. Lancer stagehand sur un autre port (`PORT=3001` et `STAGEHAND_TOKEN` dans `apps/server/.env`, Node 24 ou plus) : `pnpm build && pnpm start`.
+2. Y créer et activer la salle, puis créer :
+   - les scènes aux ID exacts `night`, `day`, `salvateur`, `voyante`, `loups`, `loup-blanc`, `sorciere`, `flute`, `death`, `victory`, `full` ;
+   - l'effet `strobe`, de type `lightning`, sans répétition.
+3. Lancer lg-panel :
+
+```bash
+STAGEHAND_URL=http://localhost:3001 STAGEHAND_TOKEN=… STAGEHAND_ROOM=<id de la salle> npm start
+```
+
+Le panneau **Préparation** signale ce qui manque dans stagehand. La lumière ne vise jamais un joueur : les morts déclenchent la scène `death` (le tir du Chasseur, le stroboscope). Si stagehand tombe, la partie continue, et le dernier look est renvoyé à son retour.
 
 ## Architecture
 

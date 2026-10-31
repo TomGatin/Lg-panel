@@ -189,6 +189,7 @@ export class Hub {
       canUndo: this.store.canUndo,
       canRedo: this.store.canRedo,
       lightStatus: this.light.status,
+      lightMissing: this.light.missing,
       connected,
       publicAudio: [...this.clients].some(c => c.role === 'public' && c.audioReady)
     }
