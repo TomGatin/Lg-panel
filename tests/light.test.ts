@@ -5,7 +5,7 @@ import { LightPort, StagehandLight } from '../server/light'
 import { ShowController } from '../server/show'
 
 const BASE = 'http://stagehand'
-const STROBE = { id: 'strobe', generator: 'lightning', params: { auto: false } }
+const STROBE = { id: 'lightning', generator: 'lightning', params: { auto: false } }
 
 /** A stagehand answering each path; anything else is a 404. */
 function stagehand(overrides: Record<string, () => Response | Promise<Response>> = {}) {
@@ -42,7 +42,7 @@ describe('StagehandLight', () => {
     const commands: [LightCommand, string][] = [
       [{ kind: 'scene', name: 'loup-blanc' }, '/api/rooms/salle/scenes/loup-blanc/go'],
       [{ kind: 'full' }, '/api/rooms/salle/scenes/full/go'],
-      [{ kind: 'strobe' }, '/api/rooms/salle/effects/strobe/fire'],
+      [{ kind: 'strobe' }, '/api/rooms/salle/effects/lightning/fire'],
       [{ kind: 'blackout' }, '/api/dmx/blackout']
     ]
     const calls = stagehand(Object.fromEntries(commands.map(([, path]) => [path, () => new Response(null, { status: 204 })])))
@@ -70,7 +70,7 @@ describe('StagehandLight', () => {
   it('goes down on a 401 or 409, but not on a scene that does not exist', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     stagehand({
-      '/api/rooms/salle/effects/strobe/fire': () => new Response(null, { status: 409 }),
+      '/api/rooms/salle/effects/lightning/fire': () => new Response(null, { status: 409 }),
       '/api/dmx/blackout': () => new Response(null, { status: 401 })
     })
     const light = await connected()
@@ -91,7 +91,7 @@ describe('StagehandLight', () => {
     })
     const light = await connected()
     expect(light.status).toBe('ok')
-    expect(light.missing).toEqual(['death', 'effet strobe (lightning, sans répétition)'])
+    expect(light.missing).toEqual(['death', 'effet lightning (sans répétition)'])
   })
 
   it('tells listeners when the missing list changes', async () => {
@@ -100,10 +100,10 @@ describe('StagehandLight', () => {
     const light = await connected()
     const seen: string[][] = []
     light.onStatusChange(() => seen.push(light.missing))
-    scenes = scenes.filter(s => s.id !== 'day')
+    scenes = scenes.filter(s => s.id !== 'dawn')
     await vi.advanceTimersByTimeAsync(5000)
     await vi.advanceTimersByTimeAsync(5000)
-    expect(seen).toEqual([['day']])
+    expect(seen).toEqual([['dawn']])
   })
 })
 

@@ -164,7 +164,7 @@ function Console({ snapshot, audioReady }: { snapshot: StaffSnapshot; audioReady
               <button type="button" onClick={() => light({ kind: 'blackout' })} className="min-h-[52px] rounded-md bg-bone text-[15px] font-bold text-ink">Blackout <Key>B</Key></button>
               <button type="button" onClick={() => light({ kind: 'full' })} className="min-h-[52px] rounded-md bg-bone text-[15px] font-bold text-ink">Plein feu</button>
               <button type="button" onClick={() => light({ kind: 'strobe' })} className="min-h-[52px] rounded-md bg-bone text-[15px] font-bold text-ink">Strobe</button>
-              <button type="button" onClick={() => light({ kind: 'scene', name: game.cycle === 'night' ? 'night' : 'day' })}
+              <button type="button" onClick={() => light({ kind: 'scene', name: game.cycle === 'night' ? 'night' : 'debate' })}
                 className="min-h-[52px] rounded-md bg-bone text-[15px] font-bold text-ink">Retour</button>
             </div>
           </Panel>

@@ -15,6 +15,8 @@ import { LnbMembers } from './members'
 import { ShowController } from './show'
 import { GameStore } from './store'
 
+if (existsSync('.env')) process.loadEnvFile('.env')
+
 const PORT = Number(process.env.PORT ?? 3000)
 const PROD = process.env.NODE_ENV === 'production'
 // In dev the phone loads the UI from Vite, which proxies /ws and /api to this server.
@@ -60,8 +62,11 @@ function isPreset(value: unknown): value is CompositionPreset {
 
 const token = loadToken()
 const members = new LnbMembers(join(DATA_DIR, 'lnb.json'))
-const { STAGEHAND_URL, STAGEHAND_TOKEN, STAGEHAND_ROOM } = process.env
-const lightsWired = STAGEHAND_URL && STAGEHAND_TOKEN && STAGEHAND_ROOM
+// Without a token or with an empty STAGEHAND_URL the lights are simulated, to work without the room's rig.
+const STAGEHAND_URL = process.env.STAGEHAND_URL ?? 'http://localhost:3001'
+const STAGEHAND_TOKEN = process.env.STAGEHAND_TOKEN
+const STAGEHAND_ROOM = process.env.STAGEHAND_ROOM ?? 'wakanda'
+const lightsWired = STAGEHAND_URL && STAGEHAND_TOKEN
 const light: LightPort = lightsWired ? new StagehandLight(STAGEHAND_URL, STAGEHAND_TOKEN, STAGEHAND_ROOM) : new FakeLight()
 const store = new GameStore(join(DATA_DIR, 'session.jsonl'))
 const hub = new Hub(store, light, token,
@@ -117,7 +122,7 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, () =
   console.log(`  MJ (téléphone) : ${mjUrl}`)
   console.log(`  Régie (ce PC)  : http://localhost:${UI_PORT}/regie`)
   console.log(`  Écran public   : http://localhost:${UI_PORT}/public`)
-  console.log(`  Lumières       : ${lightsWired ? `${STAGEHAND_URL}, salle ${STAGEHAND_ROOM}` : 'simulées (définir STAGEHAND_URL, STAGEHAND_TOKEN et STAGEHAND_ROOM)'}\n`)
+  console.log(`  Lumières       : ${lightsWired ? `${STAGEHAND_URL}, salle ${STAGEHAND_ROOM}` : 'simulées (STAGEHAND_TOKEN absent du .env ou STAGEHAND_URL vide)'}\n`)
   qrcode.generate(mjUrl, { small: true })
 }) as Server
 

@@ -19,7 +19,7 @@ npm test        # règles, projection publique, conduite, undo/redo, rejeu du jo
 
 Le QR code contient un jeton d'accès (stocké dans `data/token.txt`). Sans lui, `/mj` et `/regie` refusent les connexions venant du réseau. Le PC qui fait tourner le serveur n'en a pas besoin.
 
-Variables d'environnement : `PORT` (3000), `LG_DATA_DIR` (`data/`), et pour les lumières `STAGEHAND_URL`, `STAGEHAND_TOKEN`, `STAGEHAND_ROOM` (si l'une manque, les lumières sont simulées dans la console).
+Variables d'environnement : `PORT` (3000), `LG_DATA_DIR` (`data/`), et pour les lumières `STAGEHAND_URL` (`http://localhost:3001`, vide pour les simuler dans la console), `STAGEHAND_ROOM` (`wakanda`) et `STAGEHAND_TOKEN`, à mettre dans `.env` (voir `.env.example`).
 
 ## Données
 
@@ -40,17 +40,13 @@ Tout est dans `data/` (ignoré par git) :
 
 Les lumières sont pilotées par [stagehand](../stagehand), un serveur séparé qui parle au DMX. Ses routes sont isolées dans `server/light.ts`.
 
-1. Lancer stagehand sur un autre port (`PORT=3001` et `STAGEHAND_TOKEN` dans `apps/server/.env`, Node 24 ou plus) : `pnpm build && pnpm start`.
-2. Y créer et activer la salle, puis créer :
-   - les scènes aux ID exacts `night`, `day`, `salvateur`, `voyante`, `loups`, `loup-blanc`, `sorciere`, `flute`, `death`, `victory`, `full` ;
-   - l'effet `strobe`, de type `lightning`, sans répétition.
-3. Lancer lg-panel :
+1. Lancer stagehand sur le port 3001 (Node 24 ou plus, `PORT=3001` dans `apps/server/.env`) : `pnpm build && pnpm start`.
+2. Copier `.env.example` vers `.env` et y mettre le jeton de stagehand.
+3. Lancer lg-panel : il se connecte tout seul à la salle `wakanda`.
 
-```bash
-STAGEHAND_URL=http://localhost:3001 STAGEHAND_TOKEN=… STAGEHAND_ROOM=<id de la salle> npm start
-```
+La salle doit être active et contenir les scènes `night`, `dawn`, `debate`, `vote`, `salvateur`, `seer`, `wolves`, `loup-blanc`, `witch`, `flute`, `death`, `victory`, `full`, ainsi que l'effet `lightning` sans répétition (le stroboscope). Le panneau **Préparation** signale ce qui manque.
 
-Le panneau **Préparation** signale ce qui manque dans stagehand. La lumière ne vise jamais un joueur : les morts déclenchent la scène `death` (le tir du Chasseur, le stroboscope). Si stagehand tombe, la partie continue, et le dernier look est renvoyé à son retour.
+La lumière ne vise jamais un joueur : les morts déclenchent la scène `death` (le tir du Chasseur, le stroboscope). Si stagehand tombe, la partie continue, et le dernier look est renvoyé à son retour. Un effet lancé à la main depuis un pad de stagehand reste par-dessus les scènes jusqu'à son arrêt ou un blackout.
 
 ## Architecture
 

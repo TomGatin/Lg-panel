@@ -3,18 +3,18 @@ import { Cue, CueEffects, GameState, Player, ScreenView, ShowState, SfxId, Winne
 
 const STEP_EFFECTS: Partial<Record<NightStepId, CueEffects>> = {
   salvateur: { light: { kind: 'scene', name: 'salvateur' } },
-  voyante: { light: { kind: 'scene', name: 'voyante' } },
-  loups_garous: { sfx: 'wolves', light: { kind: 'scene', name: 'loups' } },
-  grand_mechant_loup: { light: { kind: 'scene', name: 'loups' } },
+  voyante: { light: { kind: 'scene', name: 'seer' } },
+  loups_garous: { sfx: 'wolves', light: { kind: 'scene', name: 'wolves' } },
+  grand_mechant_loup: { light: { kind: 'scene', name: 'wolves' } },
   loup_blanc: { light: { kind: 'scene', name: 'loup-blanc' } },
-  sorciere: { sfx: 'witch', light: { kind: 'scene', name: 'sorciere' } },
+  sorciere: { sfx: 'witch', light: { kind: 'scene', name: 'witch' } },
   joueur_de_flute: { sfx: 'flute', light: { kind: 'scene', name: 'flute' } }
 }
 
-// Lights never single out a player: deaths get one effect for the whole room.
 /** Scenes the cues call: they must exist under these ids in stagehand, which only accepts slugs. */
-export const LIGHT_SCENES = ['night', 'day', 'salvateur', 'voyante', 'loups', 'loup-blanc', 'sorciere', 'flute', 'death', 'victory', 'full']
+export const LIGHT_SCENES = ['night', 'dawn', 'debate', 'vote', 'salvateur', 'seer', 'wolves', 'loup-blanc', 'witch', 'flute', 'death', 'victory', 'full']
 
+// Lights never single out a player: deaths get one effect for the whole room.
 const DEATH_LIGHT = { kind: 'scene', name: 'death' } as const
 
 /**
@@ -39,7 +39,7 @@ export function buildCues(game: GameState): Cue[] {
     }
   } else {
     cues.push({ id: `d${n}-daybreak`, kind: 'daybreak', title: 'Lever du jour', ready: true,
-      effects: { sfx: 'rooster', ambience: 'day', light: { kind: 'scene', name: 'day' }, screen: 'day' } })
+      effects: { sfx: 'rooster', ambience: 'day', light: { kind: 'scene', name: 'dawn' }, screen: 'day' } })
     cues.push({ id: `d${n}-reveal`, kind: 'reveal', ready: true,
       title: game.dawnDeathIds.length > 0 ? 'Révélation des morts' : 'Le village se réveille sans perte',
       effects: {
@@ -74,9 +74,9 @@ export function buildCues(game: GameState): Cue[] {
     const hunterAtDawn = game.players.some(p => p.roleId === 'chasseur' && game.dawnDeathIds.includes(p.id))
     const morningShot = (p: Player) => hunterAtDawn && p.deathReason === 'chasseur'
     cues.push(...diedToday.filter(morningShot).map(deathCue))
-    cues.push({ id: `d${n}-debate`, kind: 'debate', title: 'Débat', ready: true, effects: { screen: 'debate' } })
+    cues.push({ id: `d${n}-debate`, kind: 'debate', title: 'Débat', ready: true, effects: { screen: 'debate', light: { kind: 'scene', name: 'debate' } } })
     cues.push({ id: `d${n}-vote`, kind: 'vote', title: 'Vote du village', ready: game.vote.accusedIds.length > 0,
-      effects: { screen: 'vote' } })
+      effects: { screen: 'vote', light: { kind: 'scene', name: 'vote' } } })
     cues.push(...diedToday.filter(p => !morningShot(p)).map(deathCue))
   }
 

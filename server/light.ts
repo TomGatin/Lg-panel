@@ -15,7 +15,7 @@ export interface LightPort {
 
 const REQUEST_TIMEOUT_MS = 500
 const HEALTH_INTERVAL_MS = 5000
-const STROBE_EFFECT = 'strobe'
+const STROBE_EFFECT = 'lightning'
 
 export class StagehandLight implements LightPort {
   status: LightStatus = 'down'
@@ -87,7 +87,7 @@ export class StagehandLight implements LightPort {
     const strobe = (await effects.json() as StagehandEffect[]).find(e => e.id === STROBE_EFFECT)
     // Only a one-shot lightning re-fires: any other effect toggles, and a second strobe would stop the first.
     const strobeOk = strobe?.generator === 'lightning' && !strobe.params.auto
-    const missing = [...LIGHT_SCENES.filter(name => !sceneIds.includes(name)), ...(strobeOk ? [] : ['effet strobe (lightning, sans répétition)'])]
+    const missing = [...LIGHT_SCENES.filter(name => !sceneIds.includes(name)), ...(strobeOk ? [] : [`effet ${STROBE_EFFECT} (sans répétition)`])]
     if (missing.join() === this.missing.join()) return
     this.missing = missing
     this.notify()
