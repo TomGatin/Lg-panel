@@ -1,11 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LIGHT_SCENES } from '../shared/cues'
-import { LightCommand, LightStatus } from '../shared/types'
+import { buildCues, LIGHT_SCENES } from '../shared/cues'
+import { getNightSteps } from '../shared/rules'
+import { arcPoint, PanTilt, skyPosition } from '../shared/sky'
+import { GameState, LightCommand, LightStatus, ShowState } from '../shared/types'
 import { LightPort, StagehandLight } from '../server/light'
 import { ShowController } from '../server/show'
+import { Game } from './helpers'
 
 const BASE = 'http://stagehand'
 const STROBE = { id: 'lightning', generator: 'lightning', params: { auto: false } }
+
+const at = (fixtureId: string, pan: number, tilt: number) => ({ fixtureId, pan, tilt })
+const TARGETS = [
+  { id: 'moon', positions: [at('m1', 0, 0)] },
+  { id: 'sun', positions: [at('m2', 0, 0)] },
+  { id: 'moon-start', positions: [at('m1', 1000, 500), at('m2', 3000, 500)] },
+  { id: 'moon-zenith', positions: [at('m1', 2000, 900), at('m2', 4000, 900)] },
+  { id: 'moon-end', positions: [at('m1', 3000, 500), at('m2', 5000, 500)] },
+  { id: 'sun-start', positions: [at('m2', 100, 100)] },
+  { id: 'sun-zenith', positions: [at('m2', 200, 200)] },
+  { id: 'sun-end', positions: [at('m2', 300, 100)] }
+]
 
 /** A stagehand answering each path; anything else is a 404. */
 function stagehand(overrides: Record<string, () => Response | Promise<Response>> = {}) {
@@ -14,6 +29,7 @@ function stagehand(overrides: Record<string, () => Response | Promise<Response>>
     '/api/rooms/salle': () => Response.json({ id: 'salle', active: true }),
     '/api/rooms/salle/scenes': () => Response.json(LIGHT_SCENES.map(id => ({ id }))),
     '/api/rooms/salle/effects': () => Response.json([STROBE]),
+    '/api/rooms/salle/targets': () => Response.json(TARGETS),
     ...overrides
   }
   vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
@@ -107,10 +123,149 @@ describe('StagehandLight', () => {
   })
 })
 
+describe('the sky', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  const puts = (calls: ReturnType<typeof stagehand>) => calls.filter(c => c.method === 'PUT').map(c => c.url)
+  const moonPut = (fixture: string) => `/api/rooms/salle/targets/moon/positions/${fixture}`
+
+  function recordingBodies() {
+    const bodies: { url: string; pan: number; tilt: number }[] = []
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      const path = url.slice(BASE.length)
+      if (init.method === 'PUT') bodies.push({ url: path, ...(JSON.parse(init.body as string) as PanTilt) })
+      if (path.endsWith('/targets')) return Response.json(TARGETS)
+      if (path.endsWith('/scenes')) return Response.json(LIGHT_SCENES.map(id => ({ id })))
+      if (path.endsWith('/effects')) return Response.json([STROBE])
+      if (path === '/api/rooms/salle') return Response.json({ active: true })
+      return new Response(null, { status: 200 })
+    })
+    return bodies
+  }
+
+  it('places a body at once the first time, on both moon heads', async () => {
+    const bodies = recordingBodies()
+    const light = await connected()
+    light.sky({ body: 'moon', progress: 0.5 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(bodies).toEqual([
+      { url: moonPut('m1'), pan: 2000, tilt: 900 },
+      { url: moonPut('m2'), pan: 4000, tilt: 900 }
+    ])
+  })
+
+  it('glides the sun along the arc over 2 s and ends exactly on the step', async () => {
+    const bodies = recordingBodies()
+    const light = await connected()
+    light.sky({ body: 'sun', progress: 0 })
+    await vi.advanceTimersByTimeAsync(0)
+    bodies.length = 0
+    light.sky({ body: 'sun', progress: 1 })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(bodies.length).toBeLessThan(20)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(bodies).toHaveLength(20)
+    expect(bodies.at(-1)).toMatchObject({ pan: 300, tilt: 100 })
+    // Halfway along it passes over the zenith, not in a straight line.
+    expect(Math.max(...bodies.map(b => b.tilt))).toBeGreaterThan(190)
+  })
+
+  it('sends the moon in one slowed order, then gives the heads their speed back', async () => {
+    const calls = stagehand({ '/api/rooms/salle/playback/head-speed': () => new Response(null, { status: 204 }) })
+    const light = await connected()
+    light.sky({ body: 'moon', progress: 0 })
+    await vi.advanceTimersByTimeAsync(0)
+    calls.length = 0
+    light.sky({ body: 'moon', progress: 1 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(puts(calls)).toEqual(['/api/rooms/salle/playback/head-speed', moonPut('m1'), moonPut('m2')])
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(puts(calls).at(-1)).toBe('/api/rooms/salle/playback/head-speed')
+    expect(puts(calls)).toHaveLength(4)
+  })
+
+  it('does not send the same position twice, and only moves the sun head by day', async () => {
+    const calls = stagehand()
+    const light = await connected()
+    light.sky({ body: 'sun', progress: 0 })
+    await vi.advanceTimersByTimeAsync(0)
+    light.sky({ body: 'sun', progress: 0 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(puts(calls)).toEqual(['/api/rooms/salle/targets/sun/positions/m2'])
+  })
+
+  it('puts the body back after an outage', async () => {
+    const bodies = recordingBodies()
+    const light = await connected()
+    light.sky({ body: 'moon', progress: 0 })
+    await vi.advanceTimersByTimeAsync(0)
+    vi.stubGlobal('fetch', async () => { throw new Error('down') })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(light.status).toBe('down')
+    bodies.length = 0
+    const after = recordingBodies()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(light.status).toBe('ok')
+    expect(after).toHaveLength(2)
+  })
+
+  it('flags an uncalibrated arc', async () => {
+    stagehand({ '/api/rooms/salle/targets': () => Response.json(TARGETS.filter(t => t.id !== 'sun-zenith')) })
+    expect((await connected()).missing).toEqual(['cible sun-zenith'])
+  })
+})
+
+describe('skyPosition', () => {
+  const show = (firedCueIds: string[] = []): ShowState =>
+    ({ firedCueIds, skippedCueIds: [], screen: 'night', ambience: 'none', autoKinds: [], audioOutput: 'public', volumes: { master: 1, ambience: 1 }, villageScreen: false })
+
+  it('advances the moon with each validated night step', () => {
+    const g = new Game(['loup_garou', 'voyante', 'sorciere', 'villageois'])
+    const steps = getNightSteps(g.state)
+    expect(skyPosition(g.state, buildCues(g.state), show())).toEqual({ body: 'moon', progress: 0 })
+    const state = structuredClone(g.state)
+    state.night.completedSteps[steps[0].id] = true
+    expect(skyPosition(state, buildCues(state), show())).toEqual({ body: 'moon', progress: 1 / steps.length })
+    for (const s of steps) state.night.completedSteps[s.id] = true
+    expect(skyPosition(state, buildCues(state), show())?.progress).toBe(1)
+  })
+
+  it('moves the sun with the cues of the day', () => {
+    const g = new Game(['loup_garou', 'voyante', 'villageois', 'villageois'])
+    g.dawn()
+    const n = g.state.roundNumber
+    const cues = buildCues(g.state)
+    expect(skyPosition(g.state, cues, show([`d${n}-daybreak`]))).toEqual({ body: 'sun', progress: 0 })
+    expect(skyPosition(g.state, cues, show([`d${n}-daybreak`, `d${n}-debate`]))?.progress).toBeCloseTo(2 / 3)
+    expect(skyPosition(g.state, cues, show([`d${n}-vote`]))?.progress).toBe(1)
+  })
+
+  it('stays put outside the game', () => {
+    expect(skyPosition({ phase: 'setup' } as GameState, [], show())).toBeNull()
+  })
+})
+
+describe('arcPoint', () => {
+  const a = { pan: 0, tilt: 0 }, b = { pan: 100, tilt: 50 }, c = { pan: 200, tilt: 0 }
+  it('goes through the three calibrated points', () => {
+    expect(arcPoint(a, b, c, 0)).toEqual(a)
+    expect(arcPoint(a, b, c, 0.5)).toEqual(b)
+    expect(arcPoint(a, b, c, 1)).toEqual(c)
+  })
+  it('stays within DMX values when the curve overshoots', () => {
+    expect(arcPoint({ pan: 65535, tilt: 0 }, { pan: 65535, tilt: 0 }, { pan: 0, tilt: 0 }, 0.25).pan).toBe(65535)
+  })
+})
+
 describe('bringing the look back', () => {
   class ManualLight implements LightPort {
     status: LightStatus = 'ok'
     missing: string[] = []
+    sky(): void {}
     sent: LightCommand[] = []
     private listener: (status: LightStatus) => void = () => undefined
     onStatusChange(listener: (status: LightStatus) => void): void { this.listener = listener }

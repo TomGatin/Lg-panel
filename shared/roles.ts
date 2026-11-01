@@ -260,13 +260,22 @@ export const ROLES: Record<RoleId, RoleDefinition> = {
   }
 }
 
+/** The cards in the physical box, the only ones setup offers; the other roles stay playable by the rules. */
+export const EDITION_ROLES: RoleId[] = [
+  'loup_garou', 'grand_mechant_loup', 'infect_pere_des_loups', 'loup_blanc',
+  'voyante', 'sorciere', 'chasseur', 'cupidon', 'petite_fille', 'deux_soeurs',
+  'renard', 'montreur_ours', 'chevalier_epee_rouillee', 'ancien', 'villageois',
+  'enfant_sauvage', 'chien_loup', 'joueur_de_flute', 'ange'
+]
+
+// Simple villagers are dull to play: every seat gets a power as long as the box has one left.
 export const PRESETS: CompositionPreset[] = [
   {
     name: '8 Joueurs • Classique',
     roles: [
       'loup_garou', 'loup_garou',
       'voyante', 'sorciere', 'chasseur',
-      'villageois', 'villageois', 'villageois'
+      'cupidon', 'petite_fille', 'montreur_ours'
     ]
   },
   {
@@ -274,7 +283,7 @@ export const PRESETS: CompositionPreset[] = [
     roles: [
       'loup_garou', 'loup_garou', 'infect_pere_des_loups',
       'voyante', 'sorciere', 'chasseur', 'montreur_ours',
-      'cupidon', 'villageois', 'villageois'
+      'cupidon', 'petite_fille', 'ancien'
     ]
   },
   {
@@ -283,7 +292,7 @@ export const PRESETS: CompositionPreset[] = [
       'loup_garou', 'loup_garou', 'grand_mechant_loup',
       'voyante', 'sorciere', 'chasseur', 'cupidon',
       'montreur_ours', 'renard', 'chevalier_epee_rouillee',
-      'villageois', 'villageois'
+      'petite_fille', 'ange'
     ]
   },
   {
@@ -292,7 +301,7 @@ export const PRESETS: CompositionPreset[] = [
       'loup_garou', 'loup_garou', 'infect_pere_des_loups', 'loup_blanc',
       'voyante', 'sorciere', 'chasseur', 'cupidon',
       'montreur_ours', 'renard', 'joueur_de_flute', 'ancien',
-      'enfant_sauvage', 'villageois', 'villageois'
+      'enfant_sauvage', 'petite_fille', 'chevalier_epee_rouillee'
     ]
   },
   {
@@ -301,7 +310,7 @@ export const PRESETS: CompositionPreset[] = [
       'loup_garou', 'loup_garou', 'loup_garou', 'infect_pere_des_loups', 'loup_blanc',
       'voyante', 'sorciere', 'chasseur', 'cupidon',
       'montreur_ours', 'renard', 'joueur_de_flute', 'ancien',
-      'enfant_sauvage', 'chien_loup', 'chevalier_epee_rouillee', 'villageois', 'villageois'
+      'enfant_sauvage', 'chien_loup', 'chevalier_epee_rouillee', 'petite_fille', 'ange'
     ]
   },
   {

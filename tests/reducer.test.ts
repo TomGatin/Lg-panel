@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { RuleError } from '../shared/reducer'
+import { EDITION_ROLES, PRESETS, ROLES } from '../shared/roles'
 import { getNightSteps } from '../shared/rules'
 import { RoleId } from '../shared/types'
 import { Game } from './helpers'
+
+describe('presets', () => {
+  it.each(PRESETS.map(p => [p.name, p.roles] as const))('%s can be dealt from the box', (name, roles) => {
+    expect(roles).toHaveLength(Number.parseInt(name, 10))
+    expect(roles.filter(r => !EDITION_ROLES.includes(r))).toEqual([])
+    expect(roles).not.toContain('villageois')
+    for (const r of new Set(roles)) expect(roles.filter(x => x === r).length).toBeLessThanOrEqual(ROLES[r].maxAvailable)
+  })
+})
 
 describe('setup', () => {
   it('opens night 1 with players in seat order', () => {

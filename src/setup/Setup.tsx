@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, GripVertical, Plus, Save, Shuffle, Trash2, Users, X } from 'lucide-react'
 import { PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { PRESETS, ROLES } from '../../shared/roles'
+import { EDITION_ROLES, PRESETS, ROLES } from '../../shared/roles'
 import { WOLF_ROLES } from '../../shared/rules'
 import { CompositionPreset, CustomStep, RoleId, SetupPlayer } from '../../shared/types'
 import { useLive } from '../lib/live'
@@ -13,14 +13,15 @@ interface Row {
 const DRAFT_KEY = 'lg-setup-draft'
 const EXTRAS_KEY = 'lg-setup-extras'
 // Alphabetical, so a role is quick to find in the seat dropdowns.
-const ROLE_IDS = (Object.keys(ROLES) as RoleId[]).sort((a, b) => ROLES[a].name.localeCompare(ROLES[b].name, 'fr'))
+const ROLE_IDS = [...EDITION_ROLES].sort((a, b) => ROLES[a].name.localeCompare(ROLES[b].name, 'fr'))
 const SCROLL_EDGE = 64
 const WOLF_TEAM = new Set<RoleId>(WOLF_ROLES)
 
 function loadDraft(): Row[] {
   try {
     const raw = localStorage.getItem(DRAFT_KEY)
-    if (raw) return JSON.parse(raw) as Row[]
+    // A draft saved earlier can hold a card that is not in the box: its dropdown could not show it.
+    if (raw) return (JSON.parse(raw) as Row[]).map(r => (EDITION_ROLES.includes(r.roleId) ? r : { ...r, roleId: 'villageois' }))
   } catch {
     // Private mode or corrupted draft: start from the default preset.
   }

@@ -46,6 +46,8 @@ Les lumières sont pilotées par [stagehand](../stagehand), un serveur séparé 
 
 La salle doit être active et contenir les scènes `night`, `dawn`, `debate`, `vote`, `salvateur`, `seer`, `wolves`, `loup-blanc`, `witch`, `flute`, `death`, `victory`, `full`, ainsi que l'effet `lightning` sans répétition (le stroboscope). Le panneau **Préparation** signale ce qui manque.
 
+La lune et le soleil traversent le mur du fond de gauche à droite. La lune avance à chaque étape de nuit validée par le MJ, le soleil au lever du jour, à la révélation, au débat et au vote, avec un glissement d'environ 2 s (réglages dans `SKY_MOTION`, `shared/sky.ts`). L'arc se règle dans stagehand avec les cibles `moon-start`, `moon-zenith`, `moon-end` (les deux lyres) et `sun-start`, `sun-zenith`, `sun-end` (`m2`). lg-panel réécrit en continu les cibles `moon` et `sun` : ne pas les régler à la main. Une scène n'affiche l'astre que si elle contient ses effets (`moon-1` et `moon-2`, ou `sun`).
+
 La lumière ne vise jamais un joueur : les morts déclenchent la scène `death` (le tir du Chasseur, le stroboscope). Si stagehand tombe, la partie continue, et le dernier look est renvoyé à son retour. Un effet lancé à la main depuis un pad de stagehand reste par-dessus les scènes jusqu'à son arrêt ou un blackout.
 
 ## Architecture

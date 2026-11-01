@@ -4,6 +4,7 @@ import { buildCues, mjNextCue, startsDebate } from '../shared/cues'
 import { projectPublic } from '../shared/project'
 import { AckedMessage, ClientMessage, ClientRole, ServerMessage, StaffSnapshot, WS_PATH } from '../shared/protocol'
 import { RuleError } from '../shared/reducer'
+import { skyPosition } from '../shared/sky'
 import { Cue, ScreenView } from '../shared/types'
 import { LightPort } from './light'
 import { ShowController } from './show'
@@ -155,6 +156,7 @@ export class Hub {
     this.show.autoFire(this.cues)
     this.startDebate(before)
     this.armTimeUp()
+    this.light.sky(skyPosition(this.store.state, this.cues, this.show.state))
   }
 
   private startDebate(before: ScreenView): void {
