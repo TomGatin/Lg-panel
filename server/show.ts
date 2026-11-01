@@ -117,7 +117,8 @@ export class ShowController {
     for (const cue of cues) {
       const done = this.current.firedCueIds.includes(cue.id) || this.current.skippedCueIds.includes(cue.id)
       if (cue.ready && !done && hasEffects(cue) && this.current.autoKinds.includes(cue.kind)) {
-        this.fire(cue)
+        // Cues fired together must not cut each other.
+        this.fire(cue, !fired)
         fired = true
       }
     }
@@ -134,7 +135,9 @@ export class ShowController {
     this.save()
   }
 
-  private fire(cue: Cue): void {
+  private fire(cue: Cue, cutSound = true): void {
+    // An event's sound ends with it, so nothing spills over the next one.
+    if (cutSound && !cue.effects.keepSound) this.emitAudio(null)
     this.applyEffects(cue.effects)
     if (!this.current.firedCueIds.includes(cue.id)) this.current.firedCueIds.push(cue.id)
   }

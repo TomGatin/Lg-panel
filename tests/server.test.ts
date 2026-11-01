@@ -2,8 +2,9 @@ import { mkdtempSync, readdirSync, readFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { buildCues, mjNextCue, nextCue, startsDebate } from '../shared/cues'
+import { buildCues, LIGHT_SCENES, mjNextCue, nextCue, SFX_LABELS, startsDebate, stepChangeCutsSound } from '../shared/cues'
 import { projectPublic } from '../shared/project'
+import { buildReviewEvents } from '../shared/review'
 import { LightCommand, SfxId, ShowState } from '../shared/types'
 import { FakeLight } from '../server/light'
 import { ShowController } from '../server/show'
@@ -101,7 +102,7 @@ describe('cues', () => {
   it('announces a newly elected captain once', () => {
     const g = new Game(['loup_garou', 'villageois', 'villageois', 'villageois'])
     g.dawn().do({ type: 'ASSIGN_CAPTAIN', playerId: g.id(3) })
-    expect(buildCues(g.state).find(c => c.kind === 'captain')?.effects).toEqual({ screen: 'captain', sfx: 'announcement' })
+    expect(buildCues(g.state).find(c => c.kind === 'captain')?.effects).toMatchObject({ screen: 'captain', sfx: 'announcement' })
     g.do({ type: 'ADVANCE_TO_NIGHT' }).dawn()
     expect(buildCues(g.state).some(c => c.kind === 'captain')).toBe(false)
   })
@@ -143,7 +144,7 @@ describe('cues', () => {
   it('plays the death effect for the whole room, never on a seat', () => {
     const calm = new Game(['loup_garou', 'villageois', 'villageois', 'villageois'])
     calm.dawn()
-    expect(buildCues(calm.state).find(c => c.kind === 'reveal')?.effects.light).toBeUndefined()
+    expect(buildCues(calm.state).find(c => c.kind === 'reveal')?.effects.light).toEqual({ kind: 'scene', name: 'debate' })
     const g = new Game(['loup_garou', 'chasseur', 'villageois', 'villageois', 'villageois', 'villageois', 'loup_garou'])
     g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(3) }).dawn()
     expect(buildCues(g.state).find(c => c.kind === 'reveal')?.effects.light).toEqual({ kind: 'scene', name: 'death' })
@@ -178,6 +179,45 @@ describe('cues', () => {
     g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
     expect(g.state.winner).toBe('loups')
     expect(buildCues(g.state).find(c => c.kind === 'victory')?.effects.sfx).toBe('victory_wolves')
+    expect(buildCues({ ...g.state, winner: 'amoureux' }).find(c => c.kind === 'victory')?.effects).toMatchObject({ sfx: 'solo', light: { name: 'solo' } })
+    expect(buildCues({ ...g.state, winner: undefined }).find(c => c.kind === 'victory')?.effects.light).toEqual({ kind: 'scene', name: 'debate' })
+  })
+})
+
+describe('sound of an event', () => {
+  const g = new Game(['loup_garou', 'cupidon', 'voyante', 'villageois'])
+  const cues = buildCues(g.state)
+
+  it('ends when the next cue is fired', () => {
+    const played: (SfxId | null)[] = []
+    const ctl = new ShowController(undefined, new FakeLight(), sfx => played.push(sfx))
+    ctl.command({ kind: 'fire', cueId: 'n1-cupidon' }, cues)
+    ctl.command({ kind: 'fire', cueId: 'n1-loups_garous' }, cues)
+    expect(played).toEqual([null, 'cupid', null, 'wolves'])
+  })
+
+  it('ends when the MJ changes step, except from Cupidon to the lovers', () => {
+    expect(stepChangeCutsSound(cues, 'cupidon', 'amoureux')).toBe(false)
+    expect(stepChangeCutsSound(cues, 'amoureux', 'voyante')).toBe(true)
+    expect(stepChangeCutsSound(cues, 'voyante', 'amoureux')).toBe(true)
+    expect(stepChangeCutsSound(cues, 'sorciere', undefined)).toBe(true)
+    expect(stepChangeCutsSound(cues, undefined, 'cupidon')).toBe(false)
+  })
+})
+
+describe('show review', () => {
+  const events = buildReviewEvents()
+
+  it('plays every sound and scene of the edition', () => {
+    const sfx = new Set(events.flatMap(e => e.effects.sfx ?? []))
+    expect(Object.keys(SFX_LABELS).filter(id => !sfx.has(id as SfxId))).toEqual(['crow'])
+    const scenes = new Set(events.flatMap(e => (e.effects.light?.kind === 'scene' ? e.effects.light.name : [])))
+    expect(LIGHT_SCENES.filter(name => !scenes.has(name))).toEqual(['salvateur', 'full'])
+  })
+
+  it('lists each event once, with steps that have no effect yet', () => {
+    expect(new Set(events.map(e => e.id)).size).toBe(events.length)
+    expect(events.find(e => e.title === 'Les Amoureux')?.effects).toEqual({ keepSound: true })
   })
 })
 

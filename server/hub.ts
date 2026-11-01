@@ -1,9 +1,10 @@
 import type { IncomingMessage, Server } from 'node:http'
 import { WebSocket, WebSocketServer } from 'ws'
-import { buildCues, mjNextCue, startsDebate } from '../shared/cues'
+import { buildCues, mjNextCue, startsDebate, stepChangeCutsSound } from '../shared/cues'
 import { projectPublic } from '../shared/project'
 import { AckedMessage, ClientMessage, ClientRole, ServerMessage, StaffSnapshot, WS_PATH } from '../shared/protocol'
 import { RuleError } from '../shared/reducer'
+import { getCurrentNightStep, NightStepId } from '../shared/rules'
 import { skyPosition } from '../shared/sky'
 import { Cue, ScreenView } from '../shared/types'
 import { LightPort } from './light'
@@ -36,6 +37,7 @@ export class Hub {
   // Phones resend an action after a reconnect: remember recent ids so it is applied once.
   private acks = new Map<string, ServerMessage>()
   private readonly show: ShowController
+  private nightStep: NightStepId | undefined
   private timeUp: ReturnType<typeof setTimeout> | undefined
 
   constructor(
@@ -152,6 +154,10 @@ export class Hub {
   private refresh(): void {
     if (this.store.state.phase === 'setup') this.show.clearCues()
     this.cues = buildCues(this.store.state)
+    const game = this.store.state
+    const step = game.phase === 'playing' && game.cycle === 'night' ? getCurrentNightStep(game)?.id : undefined
+    if (stepChangeCutsSound(this.cues, this.nightStep, step)) this.show.command({ kind: 'stopSfx' }, this.cues)
+    this.nightStep = step
     const before = this.show.state.screen
     this.show.autoFire(this.cues)
     this.startDebate(before)

@@ -1,18 +1,31 @@
 import { getBearGrowlStatus, getNightSteps, NightStepId, turnLabel } from './rules'
 import { Cue, CueEffects, GameState, Player, ScreenView, ShowState, SfxId, Winner } from './types'
 
+// Without it, a step with no look of its own would stay in the previous role's colors.
+const NIGHT_LIGHT = { kind: 'scene', name: 'night' } as const
+// The debate's look is the plain daylight; `dawn` would replay its sunrise from dark.
+const DAY_LIGHT = { kind: 'scene', name: 'debate' } as const
+
 const STEP_EFFECTS: Partial<Record<NightStepId, CueEffects>> = {
+  cupidon: { sfx: 'cupid', light: { kind: 'scene', name: 'cupid' } },
+  // The lovers wake up in the same pink, over the same music.
+  amoureux: { keepSound: true },
+  deux_soeurs: { light: NIGHT_LIGHT },
+  enfant_sauvage: { light: NIGHT_LIGHT },
+  chien_loup: { light: NIGHT_LIGHT },
+  renard: { light: NIGHT_LIGHT },
   salvateur: { light: { kind: 'scene', name: 'salvateur' } },
   voyante: { light: { kind: 'scene', name: 'seer' } },
   loups_garous: { sfx: 'wolves', light: { kind: 'scene', name: 'wolves' } },
-  grand_mechant_loup: { light: { kind: 'scene', name: 'wolves' } },
-  loup_blanc: { light: { kind: 'scene', name: 'loup-blanc' } },
+  grand_mechant_loup: { sfx: 'wolves', light: { kind: 'scene', name: 'wolves' } },
+  loup_blanc: { sfx: 'wolves', light: { kind: 'scene', name: 'loup-blanc' } },
   sorciere: { sfx: 'witch', light: { kind: 'scene', name: 'witch' } },
-  joueur_de_flute: { sfx: 'flute', light: { kind: 'scene', name: 'flute' } }
+  joueur_de_flute: { sfx: 'flute', light: { kind: 'scene', name: 'flute' } },
+  charmes_reveil: { sfx: 'flute' }
 }
 
 /** Scenes the cues call: they must exist under these ids in stagehand, which only accepts slugs. */
-export const LIGHT_SCENES = ['night', 'dawn', 'debate', 'vote', 'salvateur', 'seer', 'wolves', 'loup-blanc', 'witch', 'flute', 'death', 'victory', 'full']
+export const LIGHT_SCENES = ['night', 'dawn', 'debate', 'vote', 'salvateur', 'seer', 'wolves', 'loup-blanc', 'witch', 'flute', 'cupid', 'death', 'victory-village', 'victory-wolves', 'solo', 'full']
 
 // Lights never single out a player: deaths get one effect for the whole room.
 const DEATH_LIGHT = { kind: 'scene', name: 'death' } as const
@@ -48,12 +61,12 @@ export function buildCues(game: GameState): Cue[] {
         reveal: game.dawnDeathIds,
         // The bell tolls for the dead; a night without victims is good news.
         sfx: game.dawnDeathIds.length > 0 ? 'bell' : 'announcement',
-        light: game.dawnDeathIds.length > 0 ? DEATH_LIGHT : undefined
+        light: game.dawnDeathIds.length > 0 ? DEATH_LIGHT : DAY_LIGHT
       } })
     const bear = getBearGrowlStatus(game.players)
     if (bear?.growls && bear.bear && !game.villagePowersDisabled) {
       cues.push({ id: `d${n}-bear`, kind: 'bear', title: 'L\'ours grogne', ready: true,
-        effects: { sfx: 'bear' } })
+        effects: { sfx: 'bear', light: DAY_LIGHT } })
     }
     const accusedId = Object.keys(game.vote.corbeauBonus)[0]
     if (accusedId) {
@@ -84,19 +97,30 @@ export function buildCues(game: GameState): Cue[] {
   const captain = game.players.find(p => p.isCaptain && p.isAlive)
   if (captain && game.captainRound === turnLabel(game)) {
     cues.push({ id: `captain-${game.captainRound}-${captain.id}`, kind: 'captain', title: `Capitaine : ${captain.name}`, ready: true,
-      effects: { screen: 'captain', sfx: 'announcement' } })
+      effects: { screen: 'captain', sfx: 'announcement', light: game.cycle === 'day' ? DAY_LIGHT : undefined } })
   }
 
   if (game.phase === 'game_over') {
     cues.push({ id: 'victory', kind: 'victory', title: 'Fin de partie', ready: true,
-      effects: { screen: 'victory', ambience: 'none', light: { kind: 'scene', name: 'victory' }, sfx: victorySfx(game.winner) } })
+      effects: { screen: 'victory', ambience: 'none', light: { kind: 'scene', name: victoryScene(game.winner) }, sfx: victorySfx(game.winner) } })
   }
   return cues
 }
 
-// Wolves howl over their own wins; every other camp gets the village bells.
+const isSoloWin = (winner: Winner | undefined) =>
+  winner === 'loup_blanc' || winner === 'joueur_de_flute' || winner === 'ange' || winner === 'amoureux'
+
+// With nobody left alive there is no winner to celebrate: the room stays in plain daylight.
+function victoryScene(winner: Winner | undefined): string {
+  if (isSoloWin(winner)) return 'solo'
+  if (winner === 'village') return 'victory-village'
+  return winner === 'loups' ? 'victory-wolves' : DAY_LIGHT.name
+}
+
+// Wolves howl over their own wins; lone winners and lovers share one sting; the rest gets the village bells.
 function victorySfx(winner: Winner | undefined): SfxId {
-  return winner === 'loups' || winner === 'loup_blanc' ? 'victory_wolves' : 'victory_village'
+  if (isSoloWin(winner)) return 'solo'
+  return winner === 'loups' ? 'victory_wolves' : 'victory_village'
 }
 
 /** The debate clock starts by itself when the projector switches to the debate, unless it already ran today. */
@@ -108,6 +132,14 @@ export function startsDebate(prev: ScreenView, next: ScreenView, game: GameState
 export function hasEffects(cue: Cue): boolean {
   const e = cue.effects
   return e.sfx !== undefined || e.ambience !== undefined || e.light !== undefined || e.screen !== undefined
+}
+
+/** Whether the MJ moving between two night steps ends the sound of the step they left. */
+export function stepChangeCutsSound(cues: Cue[], before: NightStepId | undefined, after: NightStepId | undefined): boolean {
+  if (before === undefined || before === after) return false
+  const i = cues.findIndex(c => c.stepId === after)
+  // Only when moving forward: an undo landing on the step must not carry over another step's sound.
+  return !(cues[i]?.effects.keepSound && cues[i - 1]?.stepId === before)
 }
 
 export function isCueDone(cue: Cue, show: ShowState): boolean {
@@ -143,6 +175,7 @@ export function isCueBehind(cue: Cue, cues: Cue[], show: ShowState): boolean {
 
 export function describeEffects(e: CueEffects): string {
   const parts: string[] = []
+  if (e.keepSound) parts.push('Le son continue')
   if (e.sfx) parts.push(`Son : ${SFX_LABELS[e.sfx]}`)
   if (e.ambience) parts.push(e.ambience === 'none' ? 'Ambiance coupée' : `Ambiance ${e.ambience === 'night' ? 'nuit' : 'jour'}`)
   if (e.light) parts.push(`Lumière : ${describeLight(e.light)}`)
@@ -170,7 +203,9 @@ export const SFX_LABELS: Record<NonNullable<CueEffects['sfx']>, string> = {
   crow: 'Corbeau',
   announcement: 'Annonce',
   victory_village: 'Cloches',
-  victory_wolves: 'Meute'
+  victory_wolves: 'Meute',
+  cupid: 'Cupidon',
+  solo: 'Victoire solo'
 }
 
 export const SCREEN_LABELS: Record<NonNullable<CueEffects['screen']>, string> = {

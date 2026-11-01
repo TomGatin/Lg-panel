@@ -215,7 +215,7 @@ export interface ActionContext {
 // --- Show (régie) -----------------------------------------------------------
 
 export type ScreenView = 'night' | 'day' | 'reveal' | 'debate' | 'vote' | 'victory' | 'blackout' | 'village' | 'composition' | 'captain' | 'test'
-export type SfxId = 'wolves' | 'rooster' | 'bell' | 'gunshot' | 'witch' | 'flute' | 'bear' | 'crow' | 'announcement' | 'victory_village' | 'victory_wolves'
+export type SfxId = 'wolves' | 'rooster' | 'bell' | 'gunshot' | 'witch' | 'flute' | 'bear' | 'crow' | 'announcement' | 'victory_village' | 'victory_wolves' | 'cupid' | 'solo'
 export type AmbienceId = 'night' | 'day' | 'none'
 
 export type LightCommand =
@@ -226,6 +226,8 @@ export type LightCommand =
 
 export interface CueEffects {
   sfx?: SfxId
+  /** The sound of the event just before plays on through this one instead of being cut. */
+  keepSound?: boolean
   ambience?: AmbienceId
   light?: LightCommand
   screen?: ScreenView

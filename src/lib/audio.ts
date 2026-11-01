@@ -17,7 +17,9 @@ export const SFX_FILES: Record<SfxId, string> = {
   crow: '/audio/crow.mp3',
   announcement: '/audio/announcement.mp3',
   victory_village: '/audio/victory-village.mp3',
-  victory_wolves: '/audio/victory-wolves.mp3'
+  victory_wolves: '/audio/victory-wolves.mp3',
+  cupid: '/audio/cupid.mp3',
+  solo: '/audio/solo.mp3'
 }
 
 const FADE_SECONDS = 2.5

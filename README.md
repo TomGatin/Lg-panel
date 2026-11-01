@@ -7,6 +7,7 @@ Arbitrage en direct des *Loups-Garous de Thiercelieux* : un serveur fait autorit
 | `/mj` | téléphone du meneur | déroule la partie : rites de nuit, cartes, vote. Le matin, un bouton **Suivant** enchaîne lui-même les scènes d'ouverture du jour (lever du jour, révélation, ours, corbeau, tir du Chasseur, débat) au rythme de sa narration ; la suite reste à la régie. |
 | `/regie` | PC relié aux lumières | conduite de cues lancées avec **GO** (barre espace), son, lumière, écran public. Avant la partie, le panneau **Préparation** affiche la mire sur la TV, teste le son et les lumières, et signale les fichiers manquants. Le jour, le minuteur du débat se pilote aussi d'ici. Raccourcis : `1`–`9` effets, `Échap` couper, `B` blackout, `N`/`J` ambiance nuit/jour |
 | `/public` | TV reliée à la sono de la salle | nuit, révélations du matin, débat, vote, victoire. Joue le son du spectacle (sortie réglable dans la régie) : appuyer une fois sur OK de la télécommande pour l'activer. Ne reçoit aucune information secrète. |
+| `/revue` | PC relié aux lumières | hors partie, fait défiler tous les évènements du jeu dans l'ordre et lance leur son, leur lumière et leur écran pour les vérifier. Raccourcis : `←`/`→` évènement précédent/suivant, `Espace` rejouer, `Échap` couper. Le son d'un évènement se coupe quand on passe au suivant, sauf de Cupidon aux Amoureux. Bloquée pendant une partie. |
 
 ## Lancer
 
@@ -44,7 +45,7 @@ Les lumières sont pilotées par [stagehand](../stagehand), un serveur séparé 
 2. Copier `.env.example` vers `.env` et y mettre le jeton de stagehand.
 3. Lancer lg-panel : il se connecte tout seul à la salle `wakanda`.
 
-La salle doit être active et contenir les scènes `night`, `dawn`, `debate`, `vote`, `salvateur`, `seer`, `wolves`, `loup-blanc`, `witch`, `flute`, `death`, `victory`, `full`, ainsi que l'effet `lightning` sans répétition (le stroboscope). Le panneau **Préparation** signale ce qui manque.
+La salle doit être active et contenir les scènes `night`, `dawn`, `debate`, `vote`, `salvateur`, `seer`, `wolves`, `loup-blanc`, `witch`, `flute`, `cupid`, `death`, `victory-village`, `victory-wolves`, `solo`, `full`, ainsi que l'effet `lightning` sans répétition (le stroboscope). Le panneau **Préparation** signale ce qui manque.
 
 La lune et le soleil traversent le mur du fond de gauche à droite. La lune avance à chaque étape de nuit validée par le MJ, le soleil au lever du jour, à la révélation, au débat et au vote, avec un glissement d'environ 2 s (réglages dans `SKY_MOTION`, `shared/sky.ts`). L'arc se règle dans stagehand avec les cibles `moon-start`, `moon-zenith`, `moon-end` (les deux lyres) et `sun-start`, `sun-zenith`, `sun-end` (`m2`). lg-panel réécrit en continu les cibles `moon` et `sun` : ne pas les régler à la main. Une scène n'affiche l'astre que si elle contient ses effets (`moon-1` et `moon-2`, ou `sun`).
 

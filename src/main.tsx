@@ -4,13 +4,15 @@ import { connect } from './lib/live'
 import { MjApp } from './mj/MjApp'
 import { PublicApp } from './public/PublicApp'
 import { RegieApp } from './regie/RegieApp'
+import { RevueApp } from './revue/RevueApp'
 import './index.css'
 
 function Home() {
   const links: [string, string, string][] = [
     ['/mj', 'Meneur de jeu', 'Sur le téléphone : scannez le QR code affiché par le serveur.'],
     ['/regie', 'Régie', 'Sur le PC relié aux enceintes et aux lumières.'],
-    ['/public', 'Écran public', 'Sur le projecteur ou la TV. Clic ou OK de la télécommande pour le plein écran.']
+    ['/public', 'Écran public', 'Sur le projecteur ou la TV. Clic ou OK de la télécommande pour le plein écran.'],
+    ['/revue', 'Revue du spectacle', 'Hors partie : fait défiler tous les sons et toutes les lumières pour les vérifier.']
   ]
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 p-6">
@@ -36,6 +38,9 @@ if (path === '/mj') {
 } else if (path === '/public') {
   connect('public')
   app = <PublicApp />
+} else if (path === '/revue') {
+  connect('regie')
+  app = <RevueApp />
 } else {
   app = <Home />
 }
