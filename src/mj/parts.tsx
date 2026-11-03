@@ -1,7 +1,7 @@
 import { Moon, Sun, Undo2, Users, X } from 'lucide-react'
 import { ReactNode, useState } from 'react'
 import { ROLES } from '../../shared/roles'
-import { isPlayerWerewolf } from '../../shared/rules'
+import { FoxResult, isPlayerWerewolf } from '../../shared/rules'
 import { GameState, Player } from '../../shared/types'
 import { useLive } from '../lib/live'
 import { ConnectionBadge } from '../ui/Feedback'
@@ -48,7 +48,7 @@ export function StickyFooter({ children }: { children: ReactNode }) {
 export function PrimaryButton({ children, onClick, disabled }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled}
-      className="min-h-[56px] flex-[2] bg-blood px-3 font-display text-[16px] font-bold tracking-[0.06em] text-[#F6EFE0] active:bg-blood-go">
+      className="min-h-[56px] flex-[2] bg-blood px-3 font-display text-[16px] font-bold tracking-[0.06em] text-[#F6EFE0] active:bg-blood-go disabled:opacity-40">
       {children}
     </button>
   )
@@ -57,7 +57,7 @@ export function PrimaryButton({ children, onClick, disabled }: { children: React
 export function SecondaryButton({ children, onClick, disabled }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled}
-      className="min-h-[56px] flex-1 border border-rule px-3 font-display text-[15px] font-bold tracking-[0.06em] text-bone active:bg-surface">
+      className="min-h-[56px] flex-1 border border-rule px-3 font-display text-[15px] font-bold tracking-[0.06em] text-bone active:bg-surface disabled:opacity-40">
       {children}
     </button>
   )
@@ -78,6 +78,40 @@ export function CardReveal({ player, players, onClose, context }: { player: Play
         <h1 className="font-display text-4xl font-bold tracking-[0.06em]">{role.name}</h1>
         <span className="bg-blood px-5 py-2 font-display text-base font-bold tracking-[0.14em] text-[#F6EFE0]">{effectiveCamp(player, players)}</span>
         {player.isInfected && <span className="font-serif text-lg italic text-blood-text">Infecté : joue désormais avec les loups</span>}
+      </div>
+      <button type="button" onClick={onClose} className="min-h-[60px] border border-rule bg-surface font-display text-base font-bold tracking-[0.1em]">Refermer</button>
+    </div>
+  )
+}
+
+/** The Renard's sniff, shown at once like the Voyante's card: success or failure, and how many wolves. */
+export function FoxReveal({ result, onClose }: { result: FoxResult; onClose: () => void }) {
+  const sniffed = [result.leftNeighbor, result.target, result.rightNeighbor].filter((p): p is Player => p !== undefined)
+  const n = result.wolves.length
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Flair du Renard"
+      className="fixed inset-0 z-40 flex flex-col gap-4 bg-black px-5 pb-[max(1.75rem,env(safe-area-inset-bottom))] pt-6">
+      <div className="flex items-baseline justify-between">
+        <span className="label-caps">Flair du Renard</span>
+        <span className="font-serif text-[15px] italic text-muted">autour de {result.target.name}</span>
+      </div>
+      <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
+        <h1 className={`font-display text-5xl font-bold tracking-[0.06em] ${result.hasWolf ? 'text-blood-text' : ''}`}>{result.hasWolf ? 'Réussi' : 'Échoué'}</h1>
+        <span className="bg-blood px-5 py-2 font-display text-xl font-bold tracking-[0.14em] text-[#F6EFE0]">
+          {n === 0 ? 'Aucun loup' : `${n} loup${n > 1 ? 's' : ''}`}
+        </span>
+        <ul className="flex w-full flex-col font-serif text-xl">
+          {sniffed.map(p => {
+            const wolf = result.wolves.includes(p)
+            return (
+              <li key={p.id} className="flex justify-between border-b border-rule py-2">
+                <span className={p.id === result.target.id ? 'font-semibold' : ''}>{p.name}</span>
+                <span className={wolf ? 'font-display font-bold tracking-[0.06em] text-blood-text' : 'italic text-muted'}>{wolf ? 'Loup' : '—'}</span>
+              </li>
+            )
+          })}
+        </ul>
+        <p className="font-serif text-lg italic text-bone-dim">{result.hasWolf ? 'Le Renard acquiesce.' : 'Le Renard perd son flair.'}</p>
       </div>
       <button type="button" onClick={onClose} className="min-h-[60px] border border-rule bg-surface font-display text-base font-bold tracking-[0.1em]">Refermer</button>
     </div>

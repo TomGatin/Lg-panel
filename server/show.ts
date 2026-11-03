@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { hasEffects, isCueDone, nextCue } from '../shared/cues'
+import { currentCue, hasEffects, isCueDone, nextCue } from '../shared/cues'
 import { Cue, CueEffects, LightCommand, LightStatus, ShowCommand, ShowState, SfxId } from '../shared/types'
 import { LightPort } from './light'
 
@@ -54,6 +54,12 @@ export class ShowController {
         const cue = nextCue(cues, this.current)
         if (!cue) return 'Aucune cue prête.'
         this.fire(cue)
+        break
+      }
+      case 'back': {
+        const current = currentCue(cues, this.current)
+        if (!current || current.kind === 'nightfall' || current.kind === 'daybreak') return 'Pas d\'étape précédente.'
+        this.forget([current.id], cues)
         break
       }
       case 'fire': {
@@ -128,6 +134,37 @@ export class ShowController {
     }
     if (fired) this.save()
     return fired
+  }
+
+  /**
+   * Cues that are no longer played: rewound, or gone with an undo on the MJ's phone.
+   * Redone, they play again; and if the one on stage goes, the stage goes back to the moment before.
+   */
+  forget(ids: string[], cues: Cue[]): void {
+    const gone = ids.filter(id => this.current.firedCueIds.includes(id) || this.current.skippedCueIds.includes(id))
+    if (gone.length === 0) return
+    const onStage = currentCue(cues, this.current)?.id
+    const last = this.current.firedCueIds[this.current.firedCueIds.length - 1]
+    this.current.firedCueIds = this.current.firedCueIds.filter(id => !gone.includes(id))
+    this.current.skippedCueIds = this.current.skippedCueIds.filter(id => !gone.includes(id))
+    if (gone.includes(onStage ?? '') || gone.includes(last)) this.restore(cues)
+    this.save()
+  }
+
+  /**
+   * Puts the moment now on stage back, without replaying its sound: the last screen shown
+   * (a step without one, like the election, keeps the screen before it) and the last look.
+   */
+  private restore(cues: Cue[]): void {
+    this.emitAudio(null)
+    const played = this.current.firedCueIds.flatMap(id => cues.filter(c => c.id === id)).reverse()
+    const screen = played.find(c => c.effects.screen)?.effects
+    if (screen?.screen) {
+      this.current.screen = screen.screen
+      this.current.revealIds = screen.reveal
+    }
+    const light = played.find(c => c.effects.light && c.effects.light.kind !== 'strobe')?.effects.light
+    if (light) this.sendLight(light)
   }
 
   /** A new game reuses cue ids (n1-nightfall…), so the played list must start empty. */

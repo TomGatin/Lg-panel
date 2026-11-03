@@ -73,9 +73,11 @@ export function buildCues(game: GameState): Cue[] {
         effects: { screen: 'reveal', reveal: game.dawnDeathIds.slice(0, i + 1), sfx: 'bell', light: DEATH_LIGHT } })
     })
     const bear = getBearGrowlStatus(game.players)
-    if (bear?.growls && bear.bear && !game.villagePowersDisabled) {
-      cues.push({ id: `d${n}-bear`, kind: 'bear', title: 'L\'ours grogne', ready: true,
-        effects: { sfx: 'bear', light: DAY_LIGHT } })
+    // A page every morning while the tamer lives: the MJ must know whether to growl, and silence is news too.
+    if (bear && !game.villagePowersDisabled) {
+      cues.push(bear.growls
+        ? { id: `d${n}-bear`, kind: 'bear', title: 'L\'ours grogne', ready: true, effects: { sfx: 'bear', light: DAY_LIGHT } }
+        : { id: `d${n}-bear`, kind: 'bear', title: 'L\'ours reste silencieux', ready: true, effects: { light: DAY_LIGHT } })
     }
     const accusedId = Object.keys(game.vote.corbeauBonus)[0]
     if (accusedId) {
@@ -91,19 +93,38 @@ export function buildCues(game: GameState): Cue[] {
         title: `${shot ? 'Tir du Chasseur' : 'Élimination'} : ${p.name}`,
         effects: { screen: 'reveal', sfx: shot ? 'gunshot' : 'bell', light: shot ? { kind: 'strobe' } : DEATH_LIGHT } }
     }
-    const evening = eveningDeaths(game)
+    // In the order they died, so a second vote falls between the two condemned.
+    const order = game.dayDeathIds ?? []
+    const rank = (p: Player) => (order.includes(p.id) ? order.indexOf(p.id) : order.length)
+    const evening = eveningDeaths(game).sort((a, b) => rank(a) - rank(b))
     // A Hunter found dead at dawn shoots before the debate: his shot belongs to the morning.
     const diedToday = game.players.filter(p => !p.isAlive && p.deathRound === `Jour ${n}`)
     cues.push(...diedToday.filter(p => !evening.includes(p)).map(deathCue))
-    // Named in the morning, the captain is announced before the debate; named after a death, once it is revealed.
-    if (captain && !game.captainAfterVote) cues.push(captain)
-    // A game decided at dawn goes straight to the victory.
-    if (game.phase !== 'game_over') {
-      cues.push({ id: `d${n}-debate`, kind: 'debate', title: 'Débat', ready: true, effects: { screen: 'debate', light: { kind: 'scene', name: 'debate' } } })
-      cues.push({ id: `d${n}-vote`, kind: 'vote', title: 'Vote du village', ready: game.vote.accusedIds.length > 0,
-        effects: { screen: 'vote', light: { kind: 'scene', name: 'vote' } } })
+    // The village must have a captain before it debates: the election is a page of its own (reached with « Valider »,
+    // so it never covers the page before it), then the announcement, which the show waits on until someone is elected.
+    // A dawn successor goes through the same two steps; a captain named after a death is announced once it is revealed.
+    const electedHere = named !== undefined && game.captainRound === turnLabel(game) && !game.captainAfterVote
+    if (game.phase === 'playing' && (!named || electedHere)) {
+      cues.push({ id: `d${n}-election`, kind: 'election', title: 'Élection du Capitaine', ready: true, effects: { light: DAY_LIGHT } })
+      cues.push({ id: `d${n}-captain`, kind: 'captain', title: named ? `Capitaine : ${named.name}` : 'Annonce du Capitaine',
+        ready: named !== undefined, blocking: true, effects: { screen: 'captain', sfx: 'announcement', light: DAY_LIGHT } })
+    } else if (captain && !game.captainAfterVote) {
+      cues.push({ ...captain, id: `d${n}-captain` })
     }
-    cues.push(...evening.map(deathCue))
+    // A game decided at dawn goes straight to the victory.
+    if (game.phase !== 'game_over' || evening.length > 0) {
+      cues.push({ id: `d${n}-debate`, kind: 'debate', title: 'Débat', ready: true, effects: { screen: 'debate', light: { kind: 'scene', name: 'debate' } } })
+      // The MJ may open the vote before anyone is accused: accusations can come at the vote itself.
+      cues.push({ id: `d${n}-vote`, kind: 'vote', title: 'Vote du village', ready: true, effects: { screen: 'vote', light: { kind: 'scene', name: 'vote' } } })
+    }
+    const secondAt = game.secondVoteAt
+    if (secondAt === undefined) {
+      cues.push(...evening.map(deathCue))
+    } else {
+      cues.push(...evening.filter(p => rank(p) < secondAt).map(deathCue))
+      cues.push({ id: `d${n}-vote2`, kind: 'vote', title: 'Second vote (Juge Bègue)', ready: true, effects: { screen: 'vote', light: { kind: 'scene', name: 'vote' } } })
+      cues.push(...evening.filter(p => rank(p) >= secondAt).map(deathCue))
+    }
     if (captain && game.captainAfterVote) cues.push(captain)
   }
 
@@ -162,7 +183,17 @@ export function nextCue(cues: Cue[], show: ShowState): Cue | undefined {
   let from = 0
   cues.forEach((c, i) => { if (isCueDone(c, show)) from = i + 1 })
   const lateCaptain = cues.slice(0, from).find(c => c.kind === 'captain' && c.ready && !isCueDone(c, show))
-  return lateCaptain ?? cues.slice(from).find(c => c.ready && hasEffects(c))
+  if (lateCaptain) return lateCaptain
+  const next = cues.slice(from).find(c => (c.ready && hasEffects(c)) || c.blocking)
+  return next?.ready ? next : undefined
+}
+
+/** A step the show waits on before going further (the captain's election), if it is the next one. */
+export function blockingCue(cues: Cue[], show: ShowState): Cue | undefined {
+  let from = 0
+  cues.forEach((c, i) => { if (isCueDone(c, show)) from = i + 1 })
+  const next = cues.slice(from).find(c => (c.ready && hasEffects(c)) || c.blocking)
+  return next && !next.ready ? next : undefined
 }
 
 /**
@@ -174,10 +205,18 @@ export function mjNextCue(cues: Cue[], show: ShowState): Cue | undefined {
   return next && next.kind !== 'night_step' ? next : undefined
 }
 
-/** What the projector shows once a cue is played: the MJ previews it before pressing « Suivant ». */
-export function showAfter(show: ShowState, cue: Cue): ShowState {
-  const { screen, reveal } = cue.effects
-  return screen ? { ...show, screen, revealIds: reveal } : show
+/** The cue on stage now: the last one played that still belongs to this turn. The MJ's day page follows it. */
+export function currentCue(cues: Cue[], show: ShowState): Cue | undefined {
+  for (let i = show.firedCueIds.length - 1; i >= 0; i--) {
+    const cue = cues.find(c => c.id === show.firedCueIds[i])
+    if (cue) return cue
+  }
+  return undefined
+}
+
+/** The moments of the day the MJ walks through, one page each. */
+export function dayCues(cues: Cue[]): Cue[] {
+  return cues.filter(c => c.kind !== 'night_step' && c.kind !== 'nightfall' && hasEffects(c))
 }
 
 /** A cue the show has moved past without playing it. */

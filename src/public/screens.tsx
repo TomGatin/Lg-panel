@@ -91,11 +91,13 @@ function Debate({ view }: { view: PublicView }) {
 
 function Vote({ view }: { view: PublicView }) {
   const max = Math.max(1, ...view.accused.map(a => a.votes))
+  // The room sees the race: most votes on top.
+  const ranked = [...view.accused].sort((a, b) => b.votes - a.votes)
   return (
     <Frame kicker={`Jour ${view.roundNumber} · Le vote`}>
       {view.accused.length === 0 && <p className="font-serif text-[5cqmin] italic text-muted">Personne n'est encore accusé.</p>}
       <ul className="flex w-[70cqmin] flex-col space-y-[2cqmin]">
-        {view.accused.map(a => (
+        {ranked.map(a => (
           <li key={a.seat} className="flex items-center space-x-[3cqmin]">
             <span className="w-[26cqmin] text-right font-display text-[5cqmin] font-bold">{a.name}</span>
             <span className="h-[4cqmin] bg-blood" style={{ width: `${(a.votes / max) * 34}cqmin` }} />

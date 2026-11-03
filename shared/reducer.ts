@@ -1,5 +1,5 @@
 import { ROLES } from './roles'
-import { checkVictory, eveningDeaths, getFoxResult, getRustySwordTarget, getBearGrowlStatus, isPlayerWerewolf, turnLabel, WOLF_ROLES } from './rules'
+import { checkVictory, describeFoxWolves, eveningDeaths, getFoxResult, getRustySwordTarget, getBearGrowlStatus, isPlayerWerewolf, turnLabel, WOLF_ROLES } from './rules'
 import { ActionContext, DeathReason, GameAction, GameState, LogEntry, NightState, NightTargetKey, Player, VoteState } from './types'
 
 /** Thrown when an action is not allowed by the rules; the server rejects it and the state is unchanged. */
@@ -33,6 +33,7 @@ export const initialGameState: GameState = {
   angelWon: false,
   lastDeathIds: [],
   dawnDeathIds: [],
+  dayDeathIds: [],
   composition: [],
   judgeUsed: false
 }
@@ -199,7 +200,7 @@ function completeNightStep({ state, log }: Draft, stepId: string): void {
     const fox = state.players.find(p => p.roleId === 'renard')
     if (result && fox) {
       if (result.hasWolf) {
-        log(`Le Renard flaire ${result.target.name} et ses voisins : au moins un loup.`, 'power')
+        log(`Le Renard flaire ${result.target.name} et ses voisins : ${describeFoxWolves(result)}.`, 'power')
       } else {
         fox.foxLostPower = true
         log(`Le Renard flaire ${result.target.name} et ses voisins : aucun loup. Il perd son flair.`, 'power')
@@ -370,6 +371,7 @@ function apply(draft: Draft, action: GameAction, ctx: ActionContext): void {
       if (state.judgeUsed) throw new RuleError('Le Juge Bègue a déjà utilisé son pouvoir.')
       if (state.villagePowersDisabled) throw new RuleError('Le Juge Bègue a perdu son pouvoir.')
       state.judgeUsed = true
+      state.secondVoteAt = (state.dayDeathIds ?? []).length
       state.vote = emptyVote()
       log(`Le Juge Bègue (${judge.name}) ordonne un second vote.`, 'power')
       return
@@ -561,6 +563,12 @@ export function reduce(prev: GameState, action: GameAction, ctx: ActionContext):
   const newlyDead = state.players.filter(p => !p.isAlive && aliveBefore.has(p.id)).map(p => p.id)
   if (newlyDead.length > 0) state.lastDeathIds = newlyDead
   if (action.type === 'ADVANCE_TO_DAY') state.dawnDeathIds = newlyDead
+  if (action.type === 'ADVANCE_TO_DAY' || action.type === 'ADVANCE_TO_NIGHT') {
+    state.dayDeathIds = []
+    state.secondVoteAt = undefined
+  } else if (state.cycle === 'day') {
+    state.dayDeathIds = [...(state.dayDeathIds ?? []), ...newlyDead]
+  }
   if (action.type === 'ADVANCE_TO_NIGHT') {
     state.lastDeathIds = []
     state.dawnDeathIds = []

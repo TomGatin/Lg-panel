@@ -74,6 +74,15 @@ export interface FoxResult {
   leftNeighbor?: Player
   rightNeighbor?: Player
   hasWolf: boolean
+  /** The wolves among the three sniffed, for the MJ only. */
+  wolves: Player[]
+}
+
+/** « 2 loups (Ana, Gus) », « aucun loup »: what the MJ reads after the Renard's sniff. */
+export function describeFoxWolves(result: FoxResult): string {
+  const n = result.wolves.length
+  if (n === 0) return 'aucun loup'
+  return `${n} loup${n > 1 ? 's' : ''} (${result.wolves.map(p => p.name).join(', ')})`
 }
 
 export function getFoxResult(targetId: string, players: Player[]): FoxResult | null {
@@ -83,8 +92,8 @@ export function getFoxResult(targetId: string, players: Player[]): FoxResult | n
   const target = alive[idx]
   const leftNeighbor = alive.length > 1 ? alive[(idx - 1 + alive.length) % alive.length] : undefined
   const rightNeighbor = alive.length > 2 ? alive[(idx + 1) % alive.length] : undefined
-  const hasWolf = [target, leftNeighbor, rightNeighbor].some(p => p !== undefined && isPlayerWerewolf(p, players))
-  return { target, leftNeighbor, rightNeighbor, hasWolf }
+  const wolves = [leftNeighbor, target, rightNeighbor].filter((p): p is Player => p !== undefined && isPlayerWerewolf(p, players))
+  return { target, leftNeighbor, rightNeighbor, hasWolf: wolves.length > 0, wolves }
 }
 
 export type NightStepId =

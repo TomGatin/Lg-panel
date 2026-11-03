@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { buildCues, LIGHT_SCENES, mjNextCue, nextCue, SFX_LABELS, startsDebate, stepChangeCutsSound } from '../shared/cues'
+import { blockingCue, buildCues, currentCue, LIGHT_SCENES, mjNextCue, nextCue, SFX_LABELS, startsDebate, stepChangeCutsSound } from '../shared/cues'
 import { projectPublic } from '../shared/project'
 import { buildReviewEvents } from '../shared/review'
 import { LightCommand, SfxId, ShowState } from '../shared/types'
@@ -122,20 +122,22 @@ describe('cues', () => {
 
   it('never offers a cue the operator has already jumped past', () => {
     const g = new Game(['loup_garou', 'villageois', 'villageois', 'villageois'])
-    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn().do({ type: 'ASSIGN_CAPTAIN', playerId: g.id(3) })
     const cues = buildCues(g.state)
     expect(nextCue(cues, show('day'))?.kind).toBe('daybreak')
     const jumped = { ...show('reveal'), firedCueIds: [`d1-reveal-${g.id(2)}`] }
-    expect(nextCue(cues, jumped)?.kind).toBe('debate')
+    expect(nextCue(cues, jumped)?.kind).toBe('election')
   })
 
-  it('growls at dawn only when a wolf sits next to the tamer', () => {
+  it('growls at dawn only when a wolf sits next to the tamer, and says so when it does not', () => {
     const g = new Game(['loup_garou', 'montreur_ours', 'villageois', 'villageois', 'villageois'])
     g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(4) }).dawn()
     expect(buildCues(g.state).find(c => c.kind === 'bear')?.effects.sfx).toBe('bear')
     const calm = new Game(['loup_garou', 'villageois', 'montreur_ours', 'villageois', 'villageois'])
     calm.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: calm.id(4) }).dawn()
-    expect(buildCues(calm.state).some(c => c.kind === 'bear')).toBe(false)
+    // A silent bear still gets its page, without a sound.
+    expect(buildCues(calm.state).find(c => c.kind === 'bear')).toMatchObject({ title: 'L\'ours reste silencieux', effects: { light: { name: 'debate' } } })
+    expect(buildCues(calm.state).find(c => c.kind === 'bear')?.effects.sfx).toBeUndefined()
   })
 
   it('caws on the player the corbeau marked', () => {
@@ -169,10 +171,15 @@ describe('cues', () => {
       }
     }
     stepThrough()
-    expect(played).toEqual(['daybreak', 'reveal', 'crow', 'debate', 'vote'])
+    // The debate waits for the captain.
+    expect(played).toEqual(['daybreak', 'reveal', 'crow', 'election'])
+    expect(blockingCue(buildCues(g.state), ctl.state)?.title).toBe('Annonce du Capitaine')
+    g.do({ type: 'ASSIGN_CAPTAIN', playerId: g.id(5) })
+    stepThrough()
+    expect(played.slice(4)).toEqual(['captain', 'debate', 'vote'])
     g.do({ type: 'ELIMINATE_BY_VOTE', playerId: g.id(4) })
     stepThrough()
-    expect(played.slice(5)).toEqual(['death'])
+    expect(played.slice(7)).toEqual(['death'])
   })
 
   it('reveals the night victims one at a time, adding each name to the screen', () => {
@@ -201,17 +208,18 @@ describe('cues', () => {
     expect(kinds.slice(-2)).toEqual(['death', 'captain'])
   })
 
-  it('still offers a captain elected once the debate has started', () => {
+  it('asks for a captain only while there is none', () => {
     const g = new Game(['loup_garou', 'villageois', 'villageois', 'villageois', 'villageois'])
     g.dawn()
-    const ctl = new ShowController(undefined, new FakeLight(), () => undefined)
-    for (let i = 0; i < 3; i++) ctl.command({ kind: 'go' }, buildCues(g.state))
-    expect(ctl.state.screen).toBe('debate')
-    g.do({ type: 'ASSIGN_CAPTAIN', playerId: g.id(3) })
-    expect(nextCue(buildCues(g.state), ctl.state)?.kind).toBe('captain')
-    ctl.command({ kind: 'go' }, buildCues(g.state))
-    g.do({ type: 'ACCUSE', playerId: g.id(2) })
-    expect(nextCue(buildCues(g.state), ctl.state)?.kind).toBe('vote')
+    expect(buildCues(g.state).find(c => c.kind === 'captain')).toMatchObject({ blocking: true, ready: false })
+    g.do({ type: 'ASSIGN_CAPTAIN', playerId: g.id(3) }, { type: 'ADVANCE_TO_NIGHT' }).dawn()
+    expect(buildCues(g.state).some(c => c.kind === 'captain')).toBe(false)
+  })
+
+  it('puts the Juge Bègue\'s second vote between the two condemned', () => {
+    const g = new Game(['loup_garou', 'juge_begue', 'villageois', 'villageois', 'villageois', 'villageois', 'villageois'])
+    g.dawn().do({ type: 'ELIMINATE_BY_VOTE', playerId: g.id(3) }, { type: 'JUDGE_SECOND_VOTE' }, { type: 'ELIMINATE_BY_VOTE', playerId: g.id(4) })
+    expect(buildCues(g.state).slice(-3).map(c => c.id)).toEqual([`d1-death-${g.id(3)}`, 'd1-vote2', `d1-death-${g.id(4)}`])
   })
 
   it('goes straight from the dawn reveal to the victory when the game ends at dawn', () => {
@@ -248,7 +256,7 @@ describe('cues', () => {
 })
 
 describe('MJ alone', () => {
-  it('brings the night on stage when the MJ lets it fall, and lets the MJ play the day', () => {
+  it('brings the night on stage at the start and when the MJ lets it fall, and lets the MJ play the day', () => {
     const store = new GameStore()
     let ctl: ShowController | undefined
     const hub = new Hub(store, new FakeLight(), 'k', () => (ctl = new ShowController(undefined, new FakeLight(), () => undefined)))
@@ -260,13 +268,82 @@ describe('MJ alone', () => {
       (hub as unknown as { handle: (c: unknown, m: unknown) => void }).handle(mj, { ...msg, id: `m${++n}` })
     send({ t: 'action', action: { type: 'SETUP_GAME', players: ['loup_garou', 'villageois', 'villageois', 'villageois', 'villageois']
       .map((roleId, i) => ({ roleId: roleId as 'villageois', seatNumber: i + 1, name: `J${i + 1}` })) } })
+    expect(ctl?.state.screen).toBe('night')
+    expect(ctl?.state.firedCueIds).toContain('n1-nightfall')
     send({ t: 'action', action: { type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: 'p2' } })
     send({ t: 'action', action: { type: 'ADVANCE_TO_DAY' } })
-    for (let i = 0; i < 3; i++) send({ t: 'show', command: { kind: 'go' } })
-    expect(ctl?.state.screen).toBe('debate')
+    // The day breaks by itself; the MJ validates the reveal, then moves to the debate and the vote.
+    expect(ctl?.state.screen).toBe('day')
+    send({ t: 'action', action: { type: 'ASSIGN_CAPTAIN', playerId: 'p4' } })
+    for (let i = 0; i < 5; i++) send({ t: 'show', command: { kind: 'go' } })
+    expect(ctl?.state.screen).toBe('vote')
+    send({ t: 'action', action: { type: 'ACCUSE', playerId: 'p3' } })
+    send({ t: 'action', action: { type: 'ELIMINATE_BY_VOTE', playerId: 'p3' } })
+    // The condemned is revealed as soon as the MJ validates the vote.
+    expect(ctl?.state.screen).toBe('reveal')
+    expect(ctl?.state.revealIds).toBeUndefined()
+    expect(currentCue(buildCues(store.state), ctl!.state)?.id).toBe('d1-death-p3')
     send({ t: 'action', action: { type: 'ADVANCE_TO_NIGHT' } })
     expect(ctl?.state.screen).toBe('night')
     expect(ctl?.state.firedCueIds).toContain('n2-nightfall')
+  })
+})
+
+describe('rewind', () => {
+  const setup = () => {
+    const store = new GameStore()
+    let ctl: ShowController | undefined
+    const hub = new Hub(store, new FakeLight(), 'k', () => (ctl = new ShowController(undefined, new FakeLight(), () => undefined)))
+    let n = 0
+    const send = (role: 'mj' | 'regie', msg: object) =>
+      (hub as unknown as { handle: (c: unknown, m: unknown) => void }).handle({ ws: { readyState: 3 }, role, alive: true, audioReady: false }, { ...msg, id: `m${++n}` })
+    const act = (action: object) => send('mj', { t: 'action', action })
+    act({ type: 'SETUP_GAME', players: ['loup_garou', 'villageois', 'villageois', 'villageois', 'villageois', 'villageois']
+      .map((roleId, i) => ({ roleId, seatNumber: i + 1, name: `J${i + 1}` })) })
+    act({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: 'p2' })
+    act({ type: 'ADVANCE_TO_DAY' })
+    act({ type: 'ASSIGN_CAPTAIN', playerId: 'p3' })
+    return { store, show: () => ctl!, send, act }
+  }
+
+  it('takes back steps of the day with the undo arrow, in order with game actions, putting the screen back', () => {
+    const { send, show, act, store } = setup()
+    for (let i = 0; i < 4; i++) send('mj', { t: 'show', command: { kind: 'go' } })
+    expect(show().state.screen).toBe('debate')
+    act({ type: 'ACCUSE', playerId: 'p4' })
+    // First the accusation, then the debate step, then the captain's announcement.
+    send('mj', { t: 'undo' })
+    expect(store.state.vote.accusedIds).toEqual([])
+    expect(show().state.screen).toBe('debate')
+    send('mj', { t: 'undo' })
+    expect(show().state.screen).toBe('captain')
+    // Back on the election page: the screen goes back to what it showed before the announcement.
+    send('mj', { t: 'undo' })
+    expect(show().state).toMatchObject({ screen: 'reveal', revealIds: ['p2'] })
+    // Redo walks forward the same way.
+    send('mj', { t: 'redo' })
+    expect(show().state.screen).toBe('captain')
+    send('mj', { t: 'redo' })
+    send('mj', { t: 'redo' })
+    expect(show().state.screen).toBe('debate')
+    expect(store.state.vote.accusedIds).toEqual(['p4'])
+  })
+
+  it('plays an undone elimination again when it is redone, even after a manual screen change', () => {
+    const { send, show, act, store } = setup()
+    for (let i = 0; i < 5; i++) send('mj', { t: 'show', command: { kind: 'go' } })
+    act({ type: 'ACCUSE', playerId: 'p4' })
+    act({ type: 'ELIMINATE_BY_VOTE', playerId: 'p4' })
+    expect(show().state.screen).toBe('reveal')
+    send('mj', { t: 'undo' })
+    // The condemned lives again: the stage goes back to the vote.
+    expect(store.state.players.find(p => p.id === 'p4')?.isAlive).toBe(true)
+    expect(show().state.screen).toBe('vote')
+    send('regie', { t: 'show', command: { kind: 'screen', view: 'village' } })
+    send('mj', { t: 'redo' })
+    send('mj', { t: 'show', command: { kind: 'go' } })
+    expect(show().state.screen).toBe('reveal')
+    expect(show().state.firedCueIds.filter(id => id === 'd1-death-p4')).toHaveLength(1)
   })
 })
 

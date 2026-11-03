@@ -151,6 +151,10 @@ export interface GameState {
   lastDeathIds: string[]
   /** Ids of the players found dead at the last dawn (the morning announcement). */
   dawnDeathIds: string[]
+  /** Ids of the players killed during the current day, in the order they died. */
+  dayDeathIds: string[]
+  /** The Juge Bègue's second vote today: how many day deaths came before it. */
+  secondVoteAt?: number
   /** Every card dealt at setup, in seat order, for the public composition screen. */
   composition: RoleId[]
   /** The Voleur's seat, the two cards left aside, and the one he took (none: he kept his card). */
@@ -237,7 +241,7 @@ export interface CueEffects {
   reveal?: string[]
 }
 
-export type CueKind = 'nightfall' | 'night_step' | 'daybreak' | 'reveal' | 'bear' | 'crow' | 'debate' | 'vote' | 'death' | 'hunter' | 'captain' | 'victory'
+export type CueKind = 'nightfall' | 'night_step' | 'daybreak' | 'reveal' | 'bear' | 'crow' | 'debate' | 'vote' | 'death' | 'hunter' | 'election' | 'captain' | 'victory'
 
 export interface Cue {
   id: string
@@ -252,6 +256,8 @@ export interface Cue {
   stepId?: string
   /** The dead player a reveal or death cue announces. */
   playerId?: string
+  /** The show cannot go past this cue until it is ready (the captain must be elected before the debate). */
+  blocking?: boolean
 }
 
 export type LightStatus = 'ok' | 'down' | 'fake'
@@ -286,6 +292,8 @@ export interface ShowState {
 
 export type ShowCommand =
   | { kind: 'go' }
+  /** Back to the previous moment of the turn: its screen and light come back, its sound does not replay. */
+  | { kind: 'back' }
   | { kind: 'fire'; cueId: string }
   | { kind: 'skip'; cueId: string }
   | { kind: 'screen'; view: ScreenView }

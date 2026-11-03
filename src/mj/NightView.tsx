@@ -1,21 +1,15 @@
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 import { ROLES } from '../../shared/roles'
-import { getFoxResult, getNightSteps, isPlayerWerewolf, NightStep } from '../../shared/rules'
+import { describeFoxWolves, getFoxResult, getNightSteps, isPlayerWerewolf, NightStep } from '../../shared/rules'
 import { GameState, NightTargetKey, Player } from '../../shared/types'
-import { mjNextCue } from '../../shared/cues'
 import { useLive } from '../lib/live'
 import { SeatGrid } from '../ui/SeatGrid'
-import { PrimaryButton, SecondaryButton, StickyFooter } from './parts'
-import { ShowPanel } from './ShowPanel'
+import { FoxReveal, PrimaryButton, SecondaryButton, StickyFooter } from './parts'
 
 const nameOf = (game: GameState, id: string | undefined) => game.players.find(p => p.id === id)?.name
 
 export function NightView({ game, onInspect }: { game: GameState; onInspect: (p: Player, context: string) => void }) {
   const dispatch = useLive(s => s.dispatch)
-  const cues = useLive(s => s.staff?.cues)
-  const show = useLive(s => s.staff?.show)
-  // At night the rites play themselves; the panel only shows up for what the MJ must launch (nightfall, a captain).
-  const pending = cues && show ? mjNextCue(cues, show) : undefined
   const steps = getNightSteps(game)
   const index = steps.findIndex(s => !game.night.completedSteps[s.id])
   const step = index === -1 ? undefined : steps[index]
@@ -27,8 +21,6 @@ export function NightView({ game, onInspect }: { game: GameState; onInspect: (p:
           <span key={s.id} className={`h-1 flex-1 ${i < index || index === -1 ? 'bg-muted' : i === index ? 'bg-blood-go' : 'bg-rule'}`} />
         ))}
       </div>
-
-      {pending && <div className="px-4 pt-4"><ShowPanel game={game} /></div>}
 
       {step ? (
         <>
@@ -81,8 +73,10 @@ function validateLabel(game: GameState, step: NightStep): string {
 
 function NightSummary({ game }: { game: GameState }) {
   const n = game.night
+  const fox = n.foxTargetId ? getFoxResult(n.foxTargetId, game.players) : null
   const lines: [string, string | undefined][] = [
     ['Protégé', nameOf(game, n.salvateurTargetId)],
+    ['Flair du Renard', fox ? `${fox.hasWolf ? 'réussi' : 'échoué'}, ${describeFoxWolves(fox)}` : undefined],
     ['Victime des loups', nameOf(game, n.wolfVictimId) && `${nameOf(game, n.wolfVictimId)}${n.infectVictim ? ' (infecté)' : ''}${n.witchSavedVictim ? ' (sauvé par la Sorcière)' : ''}`],
     ['Grand Méchant Loup', nameOf(game, n.gmlVictimId)],
     ['Loup Blanc', nameOf(game, n.whiteWolfTargetId)],
@@ -117,6 +111,31 @@ function Notice({ tone = 'info', children }: { tone?: 'info' | 'alert'; children
     <p className={`border px-4 py-3 font-serif text-[18px] ${tone === 'alert' ? 'border-blood bg-blood-deep text-[#F6EFE0]' : 'border-rule text-bone-dim'}`}>
       {children}
     </p>
+  )
+}
+
+// Like the Voyante: touching a seat shows the result at once, full screen.
+function FoxControls({ game }: { game: GameState }) {
+  const dispatch = useLive(s => s.dispatch)
+  const { players, night } = game
+  const [shown, setShown] = useState<string | null>(null)
+  const result = night.foxTargetId ? getFoxResult(night.foxTargetId, players) : null
+  const reveal = shown ? getFoxResult(shown, players) : null
+  return (
+    <>
+      <SeatGrid players={players} selectedIds={night.foxTargetId ? [night.foxTargetId] : []}
+        onPick={id => {
+          if (night.foxTargetId !== id) dispatch({ type: 'SET_NIGHT_TARGET', key: 'foxTargetId', playerId: id })
+          setShown(id)
+        }} />
+      {result && (
+        <Notice tone={result.hasWolf ? 'alert' : 'info'}>
+          {[result.leftNeighbor, result.target, result.rightNeighbor].filter(Boolean).map(p => p?.name).join(' · ')} :{' '}
+          <strong>{describeFoxWolves(result)}</strong>. {result.hasWolf ? 'Réussi : le Renard acquiesce.' : 'Échoué : le Renard perd son flair.'}
+        </Notice>
+      )}
+      {reveal && <FoxReveal result={reveal} onClose={() => setShown(null)} />}
+    </>
   )
 }
 
@@ -188,21 +207,8 @@ function StepControls({ game, step, onInspect }: { game: GameState; step: NightS
             if (p) onInspect(p, 'vu par la Voyante')
           }} />
       )
-    case 'renard': {
-      const result = night.foxTargetId ? getFoxResult(night.foxTargetId, players) : null
-      return (
-        <>
-          <SeatGrid players={players} selectedIds={night.foxTargetId ? [night.foxTargetId] : []}
-            onPick={setTarget('foxTargetId', night.foxTargetId)} />
-          {result && (
-            <Notice tone={result.hasWolf ? 'alert' : 'info'}>
-              {[result.leftNeighbor, result.target, result.rightNeighbor].filter(Boolean).map(p => p?.name).join(' · ')} :{' '}
-              {result.hasWolf ? 'au moins un loup. Le Renard acquiesce.' : 'aucun loup. Le Renard perd son flair.'}
-            </Notice>
-          )}
-        </>
-      )
-    }
+    case 'renard':
+      return <FoxControls game={game} />
     case 'loups_garous': {
       const father = players.find(p => p.roleId === 'infect_pere_des_loups' && p.isAlive)
       const canInfect = father && !night.infectionUsedThisGame && night.wolfVictimId

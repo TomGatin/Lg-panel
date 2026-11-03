@@ -1,18 +1,32 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, Server } from 'node:http'
 import { WebSocket, WebSocketServer } from 'ws'
-import { buildCues, mjNextCue, startsDebate, stepChangeCutsSound } from '../shared/cues'
+import { buildCues, mjNextCue, nextCue, startsDebate, stepChangeCutsSound } from '../shared/cues'
 import { projectPublic } from '../shared/project'
 import { AckedMessage, ClientMessage, ClientRole, ServerMessage, StaffSnapshot, WS_PATH } from '../shared/protocol'
 import { RuleError } from '../shared/reducer'
 import { getCurrentNightStep, NightStepId } from '../shared/rules'
 import { skyPosition } from '../shared/sky'
-import { Cue, ScreenView } from '../shared/types'
+import { Cue, CueKind, GameAction, ScreenView } from '../shared/types'
 import { LightPort } from './light'
 import { ShowController } from './show'
 import { GameStore } from './store'
 
 const HEARTBEAT_MS = 15_000
+
+/**
+ * What a game action brings on stage by itself, when it is the next moment of the show:
+ * the night falls, the day breaks, the condemned and the Hunter's target are revealed, the second vote opens.
+ */
+const AUTO_PLAY: Partial<Record<GameAction['type'], CueKind>> = {
+  SETUP_GAME: 'nightfall',
+  ADVANCE_TO_NIGHT: 'nightfall',
+  ADVANCE_TO_DAY: 'daybreak',
+  ELIMINATE_BY_VOTE: 'death',
+  SCAPEGOAT: 'death',
+  EXECUTE_HUNTER_SHOT: 'death',
+  JUDGE_SECOND_VOTE: 'vote'
+}
 const ACK_MEMORY = 500
 
 interface Client {
@@ -41,7 +55,11 @@ export class Hub {
   private acks = new Map<string, ServerMessage>()
   private readonly show: ShowController
   private nightStep: NightStepId | undefined
-  private nightFalls = false
+  private autoPlay: CueKind | undefined
+  // What the undo arrow takes back, newest last: steps of the day and game actions, in the order they were done.
+  private trail: ('step' | 'action')[] = []
+  private redoTrail: ('step' | 'action')[] = []
+  private turn = ''
   private timeUp: ReturnType<typeof setTimeout> | undefined
 
   constructor(
@@ -122,18 +140,38 @@ export class Hub {
       switch (msg.t) {
         case 'action':
           this.store.dispatch(msg.action)
-          // « La nuit tombe » on the MJ's phone brings the night on stage too.
-          this.nightFalls = msg.action.type === 'ADVANCE_TO_NIGHT'
+          this.track('action')
+          // Like a validated rite at night: the moment the MJ moves to plays at once.
+          this.autoPlay = AUTO_PLAY[msg.action.type]
           break
         case 'undo':
-          if (!this.store.undo()) error = 'Rien à annuler.'
+          // The arrow takes back the last thing done: a step of the day, or a game action.
+          if (this.trail[this.trail.length - 1] === 'step' && this.show.command({ kind: 'back' }, this.cues) === undefined) {
+            this.trail.pop()
+            this.redoTrail.push('step')
+          } else if (this.store.undo()) {
+            if (this.trail[this.trail.length - 1] === 'action') this.trail.pop()
+            this.redoTrail.push('action')
+          } else {
+            error = 'Rien à annuler.'
+          }
           break
         case 'redo':
-          if (!this.store.redo()) error = 'Rien à rétablir.'
+          if (this.redoTrail[this.redoTrail.length - 1] === 'step' && nextCue(this.cues, this.show.state) !== undefined) {
+            this.show.command({ kind: 'go' }, this.cues)
+            this.redoTrail.pop()
+            this.trail.push('step')
+          } else if (this.store.redo()) {
+            if (this.redoTrail[this.redoTrail.length - 1] === 'action') this.redoTrail.pop()
+            this.trail.push('action')
+          } else {
+            error = 'Rien à rétablir.'
+          }
           break
         case 'show': {
           // The MJ may only play the next cue of the show; everything else is the régie's.
-          const mjAllowed = client.role === 'mj' && msg.command.kind === 'go' && mjNextCue(this.cues, this.show.state) !== undefined
+          const mjAllowed = client.role === 'mj' &&
+            ((msg.command.kind === 'go' && mjNextCue(this.cues, this.show.state) !== undefined) || msg.command.kind === 'back')
           if (client.role !== 'regie' && !mjAllowed) {
             error = client.role === 'mj' ? 'Rien à lancer pour l\'instant.' : 'Seule la régie pilote le spectacle.'
             break
@@ -141,6 +179,8 @@ export class Hub {
           const before = this.show.state.screen
           error = this.show.command(msg.command, this.cues)
           if (error === undefined) this.startDebate(before)
+          // A step of the day goes on the arrow's trail, like a validated rite at night.
+          if (error === undefined && msg.command.kind === 'go' && this.store.state.cycle === 'day') this.track('step')
           break
         }
       }
@@ -159,17 +199,22 @@ export class Hub {
 
   private refresh(): void {
     if (this.store.state.phase === 'setup') this.show.clearCues()
+    const before = this.cues
+    const turn = this.turn
     this.cues = buildCues(this.store.state)
     const game = this.store.state
+    this.turn = `${game.cycle}-${game.roundNumber}`
+    // Within a turn, a cue that disappears was undone (a death revived, a captain unelected): forget it was played.
+    if (turn === this.turn) this.show.forget(before.filter(c => !this.cues.some(n => n.id === c.id)).map(c => c.id), this.cues)
     const step = game.phase === 'playing' && game.cycle === 'night' ? getCurrentNightStep(game)?.id : undefined
     if (stepChangeCutsSound(this.cues, this.nightStep, step)) this.show.command({ kind: 'stopSfx' }, this.cues)
     this.nightStep = step
-    const before = this.show.state.screen
-    const nightfall = this.nightFalls ? this.cues.find(c => c.kind === 'nightfall') : undefined
-    this.nightFalls = false
-    if (nightfall) this.show.command({ kind: 'fire', cueId: nightfall.id }, this.cues)
+    const screenBefore = this.show.state.screen
+    const next = this.autoPlay ? nextCue(this.cues, this.show.state) : undefined
+    if (next && next.kind === this.autoPlay) this.show.command({ kind: 'fire', cueId: next.id }, this.cues)
+    this.autoPlay = undefined
     this.show.autoFire(this.cues)
-    this.startDebate(before)
+    this.startDebate(screenBefore)
     this.armTimeUp()
     this.light.sky(skyPosition(this.store.state, this.cues, this.show.state))
   }
@@ -185,6 +230,11 @@ export class Hub {
     if (endsAt === null || endsAt <= Date.now()) return
     this.timeUp = setTimeout(() => this.show.command({ kind: 'sfx', id: 'bell' }, this.cues), endsAt - Date.now())
     this.timeUp.unref()
+  }
+
+  private track(kind: 'step' | 'action'): void {
+    this.trail.push(kind)
+    this.redoTrail = []
   }
 
   private remember(id: string, ack: ServerMessage): void {
@@ -203,8 +253,8 @@ export class Hub {
       game: this.store.state,
       show: this.show.state,
       cues: this.cues,
-      canUndo: this.store.canUndo,
-      canRedo: this.store.canRedo,
+      canUndo: this.store.canUndo || this.trail.includes('step'),
+      canRedo: this.store.canRedo || this.redoTrail.includes('step'),
       lightStatus: this.light.status,
       lightMissing: this.light.missing,
       connected,

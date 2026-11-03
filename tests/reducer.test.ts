@@ -1,3 +1,4 @@
+import { describeFoxWolves, getFoxResult } from '../shared/rules'
 import { describe, expect, it } from 'vitest'
 import { RuleError } from '../shared/reducer'
 import { EDITION_ROLES, PRESETS, ROLES } from '../shared/roles'
@@ -321,5 +322,16 @@ describe('timer', () => {
     expect(g.state.timer.endsAt).toBe(g.now)
     g.do({ type: 'RESET_TIMER' }, { type: 'START_TIMER' }, { type: 'PAUSE_TIMER' }, { type: 'ADJUST_TIMER', seconds: -600 })
     expect(g.state.timer.pausedRemaining).toBe(0)
+  })
+})
+
+describe('renard', () => {
+  it('counts the wolves among the three sniffed, so the MJ knows when there are two', () => {
+    const g = new Game(['renard', 'loup_garou', 'villageois', 'loup_garou', 'villageois', 'villageois'], ['Ana', 'Bea', 'Cid', 'Dan', 'Eve', 'Fay'])
+    const two = getFoxResult(g.id(3), g.state.players)!
+    expect(describeFoxWolves(two)).toBe('2 loups (Bea, Dan)')
+    expect(describeFoxWolves(getFoxResult(g.id(6), g.state.players)!)).toBe('aucun loup')
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'foxTargetId', playerId: g.id(3) }, { type: 'COMPLETE_NIGHT_STEP', stepId: 'renard' })
+    expect(g.state.logs.some(l => l.message.includes('2 loups (Bea, Dan)'))).toBe(true)
   })
 })
