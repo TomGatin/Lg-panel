@@ -1,5 +1,5 @@
 import { ROLES } from './roles'
-import { checkVictory, getFoxResult, getRustySwordTarget, getBearGrowlStatus, isPlayerWerewolf, turnLabel, WOLF_ROLES } from './rules'
+import { checkVictory, eveningDeaths, getFoxResult, getRustySwordTarget, getBearGrowlStatus, isPlayerWerewolf, turnLabel, WOLF_ROLES } from './rules'
 import { ActionContext, DeathReason, GameAction, GameState, LogEntry, NightState, NightTargetKey, Player, VoteState } from './types'
 
 /** Thrown when an action is not allowed by the rules; the server rejects it and the state is unchanged. */
@@ -398,6 +398,7 @@ function apply(draft: Draft, action: GameAction, ctx: ActionContext): void {
       const becomes = !target.isCaptain
       state.players.forEach(p => { p.isCaptain = becomes && p.id === target.id })
       state.captainRound = becomes ? turnLabel(state) : undefined
+      state.captainAfterVote = becomes && eveningDeaths(state).length > 0
       if (becomes) log(`${target.name} est élu Capitaine : il départagera le village en cas d'égalité.`, 'power')
       return
     }
@@ -406,6 +407,7 @@ function apply(draft: Draft, action: GameAction, ctx: ActionContext): void {
       const heir = requireAlive(state, action.newCaptainId)
       state.players.forEach(p => { p.isCaptain = p.id === heir.id })
       state.captainRound = turnLabel(state)
+      state.captainAfterVote = eveningDeaths(state).length > 0
       state.pendingCaptainSuccessor = false
       log(`${heir.name} hérite du titre de Capitaine.`, 'power')
       return

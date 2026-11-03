@@ -24,6 +24,17 @@ export function turnLabel(state: Pick<GameState, 'cycle' | 'roundNumber'>): stri
   return `${state.cycle === 'night' ? 'Nuit' : 'Jour'} ${state.roundNumber}`
 }
 
+/**
+ * Deaths of the day that come after the vote (the condemned, a Hunter's shot, grief).
+ * A Hunter found dead at dawn shoots in the morning, so his shot is not one of them.
+ */
+export function eveningDeaths(state: Pick<GameState, 'cycle' | 'roundNumber' | 'players' | 'dawnDeathIds'>): Player[] {
+  if (state.cycle !== 'day') return []
+  const hunterAtDawn = state.players.some(p => p.roleId === 'chasseur' && state.dawnDeathIds.includes(p.id))
+  return state.players.filter(p => !p.isAlive && p.deathRound === `Jour ${state.roundNumber}` &&
+    !(hunterAtDawn && p.deathReason === 'chasseur'))
+}
+
 export interface BearStatus {
   bear?: Player
   growls: boolean

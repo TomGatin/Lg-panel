@@ -3,7 +3,7 @@ import { PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { EDITION_ROLES, PRESETS, ROLES } from '../../shared/roles'
 import { WOLF_ROLES } from '../../shared/rules'
 import { CompositionPreset, CustomStep, RoleId, SetupPlayer } from '../../shared/types'
-import { useLive } from '../lib/live'
+import { authToken, useLive } from '../lib/live'
 
 interface Row {
   name: string
@@ -46,12 +46,8 @@ function loadExtras(): Extras {
 }
 
 function authQuery(): string {
-  try {
-    const k = localStorage.getItem('lg-token')
-    return k ? `?k=${encodeURIComponent(k)}` : ''
-  } catch {
-    return ''
-  }
+  const k = authToken()
+  return k ? `?k=${encodeURIComponent(k)}` : ''
 }
 
 /** Composition of the table before the game: who sits where with which card. */

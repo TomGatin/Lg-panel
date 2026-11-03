@@ -6,9 +6,12 @@ import { buildCues, LIGHT_SCENES, mjNextCue, nextCue, SFX_LABELS, startsDebate, 
 import { projectPublic } from '../shared/project'
 import { buildReviewEvents } from '../shared/review'
 import { LightCommand, SfxId, ShowState } from '../shared/types'
+import { isTrusted } from '../server/hub'
 import { FakeLight } from '../server/light'
 import { ShowController } from '../server/show'
 import { GameStore } from '../server/store'
+import { Hub } from '../server/hub'
+import { AckedMessage } from '../shared/protocol'
 import { Game } from './helpers'
 
 const show = (screen: ShowState['screen']): ShowState =>
@@ -42,7 +45,7 @@ describe('reveal', () => {
     g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
     g.do({ type: 'EXECUTE_HUNTER_SHOT', targetPlayerId: g.id(3) })
     const ctl = new ShowController(undefined, new FakeLight(), () => undefined)
-    ctl.command({ kind: 'fire', cueId: 'd1-reveal' }, buildCues(g.state))
+    ctl.command({ kind: 'fire', cueId: `d1-reveal-${g.id(2)}` }, buildCues(g.state))
     const view = projectPublic(g.state, ctl.state)
     expect(view.lastDeaths.map(d => d.name)).toEqual(['Bea'])
     expect(view.deathMoment).toBe('dawn')
@@ -122,7 +125,7 @@ describe('cues', () => {
     g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
     const cues = buildCues(g.state)
     expect(nextCue(cues, show('day'))?.kind).toBe('daybreak')
-    const jumped = { ...show('reveal'), firedCueIds: ['d1-reveal'] }
+    const jumped = { ...show('reveal'), firedCueIds: [`d1-reveal-${g.id(2)}`] }
     expect(nextCue(cues, jumped)?.kind).toBe('debate')
   })
 
@@ -153,21 +156,81 @@ describe('cues', () => {
     expect(deaths.map(c => c.effects.light)).toEqual([{ kind: 'scene', name: 'death' }, { kind: 'strobe' }])
   })
 
-  it('lets the MJ step through the morning up to the debate, not beyond', () => {
+  it('lets the MJ step through the whole day, waiting on the vote and the elimination', () => {
     const g = new Game(['loup_garou', 'corbeau', 'villageois', 'villageois', 'villageois', 'villageois'])
     g.do({ type: 'SET_NIGHT_TARGET', key: 'corbeauTargetId', playerId: g.id(4) },
       { type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(3) }).dawn()
     const ctl = new ShowController(undefined, new FakeLight(), () => undefined)
     const played: string[] = []
-    for (let cue = mjNextCue(buildCues(g.state), ctl.state); cue; cue = mjNextCue(buildCues(g.state), ctl.state)) {
-      played.push(cue.kind)
-      ctl.command({ kind: 'go' }, buildCues(g.state))
+    const stepThrough = () => {
+      for (let cue = mjNextCue(buildCues(g.state), ctl.state); cue; cue = mjNextCue(buildCues(g.state), ctl.state)) {
+        played.push(cue.kind)
+        ctl.command({ kind: 'go' }, buildCues(g.state))
+      }
     }
-    expect(played).toEqual(['daybreak', 'reveal', 'crow', 'debate'])
+    stepThrough()
+    expect(played).toEqual(['daybreak', 'reveal', 'crow', 'debate', 'vote'])
+    g.do({ type: 'ELIMINATE_BY_VOTE', playerId: g.id(4) })
+    stepThrough()
+    expect(played.slice(5)).toEqual(['death'])
+  })
+
+  it('reveals the night victims one at a time, adding each name to the screen', () => {
+    const g = new Game(['loup_garou', 'sorciere', 'villageois', 'villageois', 'villageois', 'villageois', 'villageois'], ['Ana', 'Bea', 'Cid', 'Dan', 'Eve', 'Fay', 'Gus'])
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(3) },
+      { type: 'SET_NIGHT_TARGET', key: 'witchKillTargetId', playerId: g.id(4) }).dawn()
+    const reveals = buildCues(g.state).filter(c => c.kind === 'reveal')
+    expect(reveals.map(c => c.playerId)).toEqual(g.state.dawnDeathIds)
+    expect(reveals).toHaveLength(2)
+    const ctl = new ShowController(undefined, new FakeLight(), () => undefined)
+    const names = () => projectPublic(g.state, ctl.state).lastDeaths.map(d => d.name)
+    ctl.command({ kind: 'go' }, buildCues(g.state))
+    ctl.command({ kind: 'go' }, buildCues(g.state))
+    expect(names()).toHaveLength(1)
+    ctl.command({ kind: 'go' }, buildCues(g.state))
+    expect(names().sort()).toEqual(['Cid', 'Dan'])
+  })
+
+  it('announces a captain elected in the morning before the debate, and a successor after the death', () => {
+    const g = new Game(['loup_garou', 'villageois', 'villageois', 'villageois', 'villageois', 'villageois'])
+    g.dawn().do({ type: 'ASSIGN_CAPTAIN', playerId: g.id(3) })
+    let kinds = buildCues(g.state).map(c => c.kind)
+    expect(kinds.indexOf('captain')).toBeLessThan(kinds.indexOf('debate'))
+    g.do({ type: 'ELIMINATE_BY_VOTE', playerId: g.id(3) }, { type: 'ASSIGN_CAPTAIN_SUCCESSOR', newCaptainId: g.id(4) })
+    kinds = buildCues(g.state).map(c => c.kind)
+    expect(kinds.slice(-2)).toEqual(['death', 'captain'])
+  })
+
+  it('still offers a captain elected once the debate has started', () => {
+    const g = new Game(['loup_garou', 'villageois', 'villageois', 'villageois', 'villageois'])
+    g.dawn()
+    const ctl = new ShowController(undefined, new FakeLight(), () => undefined)
+    for (let i = 0; i < 3; i++) ctl.command({ kind: 'go' }, buildCues(g.state))
+    expect(ctl.state.screen).toBe('debate')
+    g.do({ type: 'ASSIGN_CAPTAIN', playerId: g.id(3) })
+    expect(nextCue(buildCues(g.state), ctl.state)?.kind).toBe('captain')
+    ctl.command({ kind: 'go' }, buildCues(g.state))
+    g.do({ type: 'ACCUSE', playerId: g.id(2) })
+    expect(nextCue(buildCues(g.state), ctl.state)?.kind).toBe('vote')
+  })
+
+  it('goes straight from the dawn reveal to the victory when the game ends at dawn', () => {
+    const g = new Game(['loup_garou', 'villageois', 'villageois'])
+    g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
+    expect(buildCues(g.state).map(c => c.kind)).toEqual(['daybreak', 'reveal', 'victory'])
+  })
+
+  it('holds the first rite until the night has fallen on screen', () => {
+    const g = new Game(['loup_garou', 'voyante', 'villageois', 'villageois'])
+    const ctl = new ShowController(undefined, new FakeLight(), () => undefined)
+    expect(ctl.autoFire(buildCues(g.state))).toBe(false)
+    ctl.command({ kind: 'go' }, buildCues(g.state))
+    expect(ctl.state.firedCueIds).toEqual(['n1-nightfall'])
+    expect(ctl.autoFire(buildCues(g.state))).toBe(true)
   })
 
   it('plays a dawn Hunter\'s shot in the morning, before the debate', () => {
-    const g = new Game(['loup_garou', 'chasseur', 'villageois', 'villageois', 'villageois', 'loup_garou'])
+    const g = new Game(['loup_garou', 'chasseur', 'villageois', 'villageois', 'villageois', 'villageois', 'villageois', 'loup_garou'])
     g.do({ type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: g.id(2) }).dawn()
     g.do({ type: 'EXECUTE_HUNTER_SHOT', targetPlayerId: g.id(3) })
     const kinds = buildCues(g.state).map(c => c.kind)
@@ -181,6 +244,29 @@ describe('cues', () => {
     expect(buildCues(g.state).find(c => c.kind === 'victory')?.effects.sfx).toBe('victory_wolves')
     expect(buildCues({ ...g.state, winner: 'amoureux' }).find(c => c.kind === 'victory')?.effects).toMatchObject({ sfx: 'solo', light: { name: 'solo' } })
     expect(buildCues({ ...g.state, winner: undefined }).find(c => c.kind === 'victory')?.effects.light).toEqual({ kind: 'scene', name: 'debate' })
+  })
+})
+
+describe('MJ alone', () => {
+  it('brings the night on stage when the MJ lets it fall, and lets the MJ play the day', () => {
+    const store = new GameStore()
+    let ctl: ShowController | undefined
+    const hub = new Hub(store, new FakeLight(), 'k', () => (ctl = new ShowController(undefined, new FakeLight(), () => undefined)))
+    const mj = { ws: { readyState: 3 }, role: 'mj', alive: true, audioReady: false }
+    let n = 0
+    // Distributes over the union, so each message keeps its own fields.
+    type Msg = AckedMessage extends infer M ? (M extends AckedMessage ? Omit<M, 'id'> : never) : never
+    const send = (msg: Msg) =>
+      (hub as unknown as { handle: (c: unknown, m: unknown) => void }).handle(mj, { ...msg, id: `m${++n}` })
+    send({ t: 'action', action: { type: 'SETUP_GAME', players: ['loup_garou', 'villageois', 'villageois', 'villageois', 'villageois']
+      .map((roleId, i) => ({ roleId: roleId as 'villageois', seatNumber: i + 1, name: `J${i + 1}` })) } })
+    send({ t: 'action', action: { type: 'SET_NIGHT_TARGET', key: 'wolfVictimId', playerId: 'p2' } })
+    send({ t: 'action', action: { type: 'ADVANCE_TO_DAY' } })
+    for (let i = 0; i < 3; i++) send({ t: 'show', command: { kind: 'go' } })
+    expect(ctl?.state.screen).toBe('debate')
+    send({ t: 'action', action: { type: 'ADVANCE_TO_NIGHT' } })
+    expect(ctl?.state.screen).toBe('night')
+    expect(ctl?.state.firedCueIds).toContain('n2-nightfall')
   })
 })
 
@@ -330,5 +416,16 @@ describe('show sound', () => {
     expect(played).toEqual(['wolves', null])
     expect(ctl.state.volumes).toEqual({ master: 1, ambience: 0.5 })
     expect(ctl.state.audioOutput).toBe('regie')
+  })
+})
+
+describe('pairing token', () => {
+  it('is required from every address, loopback included', () => {
+    expect(isTrusted('abc123', 'abc123')).toBe(true)
+    expect(isTrusted('abc124', 'abc123')).toBe(false)
+    expect(isTrusted('abc', 'abc123')).toBe(false)
+    expect(isTrusted(null, 'abc123')).toBe(false)
+    expect(isTrusted(undefined, 'abc123')).toBe(false)
+    expect(isTrusted('', '')).toBe(false)
   })
 })

@@ -36,14 +36,28 @@ let retryTimer: ReturnType<typeof setTimeout> | undefined
 let errorTimer: ReturnType<typeof setTimeout> | undefined
 let audioReady = false
 
-function readToken(): string | null {
-  const fromUrl = new URLSearchParams(location.search).get('k')
+let token: string | null | undefined
+
+/** Pairing token for staff views: from the QR code's ?k=, then remembered on this device. */
+export function authToken(): string | null {
+  if (token !== undefined) return token
+  const params = new URLSearchParams(location.search)
+  const fromUrl = params.get('k')
+  let stored: string | null = null
   try {
     if (fromUrl) localStorage.setItem(TOKEN_KEY, fromUrl)
-    return fromUrl ?? localStorage.getItem(TOKEN_KEY)
+    else stored = localStorage.getItem(TOKEN_KEY)
   } catch {
-    return fromUrl
+    // Private browsing: the token only lives in the URL, so it stays there.
+    return (token = fromUrl)
   }
+  if (fromUrl) {
+    // Saved: take it out of the address bar so it does not end up in a screenshot or a shared link.
+    params.delete('k')
+    const query = params.toString()
+    history.replaceState(history.state, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`)
+  }
+  return (token = fromUrl ?? stored)
 }
 
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -100,8 +114,8 @@ function open(): void {
   const { role, status } = useLive.getState()
   if (status === 'denied') return
   const params = new URLSearchParams({ role })
-  const token = readToken()
-  if (token) params.set('k', token)
+  const k = authToken()
+  if (k) params.set('k', k)
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${WS_PATH}?${params}`)
   socket = ws
   useLive.setState({ status: 'connecting' })

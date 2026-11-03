@@ -160,6 +160,8 @@ export interface GameState {
   customStep?: CustomStep
   /** Turn label when the current captain was named, so the régie announces it once. */
   captainRound?: string
+  /** The captain was named after a death of the day (vote, shot): the announcement waits until those are revealed. */
+  captainAfterVote?: boolean
 }
 
 export interface CustomStep {
@@ -248,6 +250,8 @@ export interface Cue {
   passed?: boolean
   /** Night step this cue mirrors, so the régie can show where the MJ is. */
   stepId?: string
+  /** The dead player a reveal or death cue announces. */
+  playerId?: string
 }
 
 export type LightStatus = 'ok' | 'down' | 'fake'

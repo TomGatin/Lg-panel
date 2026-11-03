@@ -2,14 +2,20 @@ import { ReactNode } from 'react'
 import { ROLES } from '../../shared/roles'
 import { getFoxResult, getNightSteps, isPlayerWerewolf, NightStep } from '../../shared/rules'
 import { GameState, NightTargetKey, Player } from '../../shared/types'
+import { mjNextCue } from '../../shared/cues'
 import { useLive } from '../lib/live'
 import { SeatGrid } from '../ui/SeatGrid'
 import { PrimaryButton, SecondaryButton, StickyFooter } from './parts'
+import { ShowPanel } from './ShowPanel'
 
 const nameOf = (game: GameState, id: string | undefined) => game.players.find(p => p.id === id)?.name
 
 export function NightView({ game, onInspect }: { game: GameState; onInspect: (p: Player, context: string) => void }) {
   const dispatch = useLive(s => s.dispatch)
+  const cues = useLive(s => s.staff?.cues)
+  const show = useLive(s => s.staff?.show)
+  // At night the rites play themselves; the panel only shows up for what the MJ must launch (nightfall, a captain).
+  const pending = cues && show ? mjNextCue(cues, show) : undefined
   const steps = getNightSteps(game)
   const index = steps.findIndex(s => !game.night.completedSteps[s.id])
   const step = index === -1 ? undefined : steps[index]
@@ -21,6 +27,8 @@ export function NightView({ game, onInspect }: { game: GameState; onInspect: (p:
           <span key={s.id} className={`h-1 flex-1 ${i < index || index === -1 ? 'bg-muted' : i === index ? 'bg-blood-go' : 'bg-rule'}`} />
         ))}
       </div>
+
+      {pending && <div className="px-4 pt-4"><ShowPanel game={game} /></div>}
 
       {step ? (
         <>

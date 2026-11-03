@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { hasEffects, nextCue } from '../shared/cues'
+import { hasEffects, isCueDone, nextCue } from '../shared/cues'
 import { Cue, CueEffects, LightCommand, LightStatus, ShowCommand, ShowState, SfxId } from '../shared/types'
 import { LightPort } from './light'
 
@@ -11,7 +11,8 @@ const initialShow = (): ShowState => ({
   skippedCueIds: [],
   screen: 'blackout',
   ambience: 'none',
-  autoKinds: [],
+  // The MJ's validations drive the night by themselves; the régie can still take it back.
+  autoKinds: ['night_step'],
   audioOutput: 'public',
   volumes: { master: 0.8, ambience: 0.5 },
   villageScreen: false
@@ -114,9 +115,12 @@ export class ShowController {
   /** Plays every ready cue whose kind the operator switched to automatic. */
   autoFire(cues: Cue[]): boolean {
     let fired = false
+    // The first rite must not light up before the night has fallen on the screen.
+    const nightfall = cues.find(c => c.kind === 'nightfall')
+    const beforeNightfall = nightfall !== undefined && !isCueDone(nightfall, this.current)
     for (const cue of cues) {
-      const done = this.current.firedCueIds.includes(cue.id) || this.current.skippedCueIds.includes(cue.id)
-      if (cue.ready && !done && hasEffects(cue) && this.current.autoKinds.includes(cue.kind)) {
+      if (beforeNightfall && cue.kind === 'night_step') continue
+      if (cue.ready && !isCueDone(cue, this.current) && hasEffects(cue) && this.current.autoKinds.includes(cue.kind)) {
         // Cues fired together must not cut each other.
         this.fire(cue, !fired)
         fired = true

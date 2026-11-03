@@ -73,8 +73,7 @@ const hub = new Hub(store, light, token,
   emit => new ShowController(join(DATA_DIR, 'show.json'), light, sfx => emit({ t: 'audio', sfx })))
 
 const app = new Hono<{ Bindings: HttpBindings }>()
-const trusted = (c: { env: HttpBindings; req: { query: (k: string) => string | undefined } }) =>
-  isTrusted(c.env.incoming.socket.remoteAddress, c.req.query('k') ?? null, token)
+const trusted = (c: { req: { query: (k: string) => string | undefined } }) => isTrusted(c.req.query('k'), token)
 
 app.get('/api/health', c => c.json({ ok: true }))
 
@@ -120,7 +119,7 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, () =
   const mjUrl = `${base}/mj?k=${token}`
   console.log('\n  Thiercelieux — serveur prêt\n')
   console.log(`  MJ (téléphone) : ${mjUrl}`)
-  console.log(`  Régie (ce PC)  : http://localhost:${UI_PORT}/regie`)
+  console.log(`  Régie (ce PC)  : http://localhost:${UI_PORT}/regie?k=${token}`)
   console.log(`  Écran public   : http://localhost:${UI_PORT}/public`)
   console.log(`  Lumières       : ${lightsWired ? `${STAGEHAND_URL}, salle ${STAGEHAND_ROOM}` : 'simulées (STAGEHAND_TOKEN absent du .env ou STAGEHAND_URL vide)'}\n`)
   qrcode.generate(mjUrl, { small: true })

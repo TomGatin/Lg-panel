@@ -1,14 +1,13 @@
-import { ChevronRight, Pause, Play, RotateCcw, X } from 'lucide-react'
+import { Pause, Play, RotateCcw, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { ROLES } from '../../shared/roles'
-import { mjNextCue, SCREEN_LABELS } from '../../shared/cues'
 import { getServantTarget } from '../../shared/reducer'
 import { getBearGrowlStatus } from '../../shared/rules'
-import { GameState, Player } from '../../shared/types'
+import { GameState } from '../../shared/types'
 import { haptics } from '../lib/haptics'
 import { useLive } from '../lib/live'
 import { formatClock, useRemaining } from '../lib/timer'
 import { PickerSheet, PrimaryButton, SecondaryButton, StickyFooter } from './parts'
+import { ShowPanel } from './ShowPanel'
 
 const DURATIONS = [120, 180, 300]
 
@@ -29,27 +28,6 @@ export function TimerControls({ game }: { game: GameState }) {
         onClick={() => dispatch(running ? { type: 'PAUSE_TIMER' } : { type: 'START_TIMER' })}
         className="flex h-12 w-12 items-center justify-center border border-rule">{running ? <Pause size={18} /> : <Play size={18} />}</button>
     </div>
-  )
-}
-
-/** The MJ steps through the opening of the day at the pace of the narration, without waiting for the régie. */
-function MorningScenes() {
-  const send = useLive(s => s.show)
-  const cues = useLive(s => s.staff?.cues)
-  const show = useLive(s => s.staff?.show)
-  const next = cues && show ? mjNextCue(cues, show) : undefined
-  if (!next || !show) return null
-  return (
-    <section className="flex items-center gap-2 border border-blood bg-blood-deep py-2 pl-4 pr-2">
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="label-caps text-[#E8CFC9]">Écran : {SCREEN_LABELS[show.screen]}</span>
-        <span className="truncate font-serif text-[17px] text-[#F6EFE0]">Ensuite : {next.title}</span>
-      </span>
-      <button type="button" onClick={() => send({ kind: 'go' })}
-        className="flex min-h-[52px] items-center gap-1 bg-blood px-4 font-display text-[15px] font-bold tracking-[0.06em] text-[#F6EFE0] active:bg-blood-go">
-        Suivant<ChevronRight size={18} />
-      </button>
-    </section>
   )
 }
 
@@ -79,16 +57,7 @@ export function DayView({ game }: { game: GameState }) {
   return (
     <>
       <div className="flex flex-col gap-2 px-4 pt-4">
-        <MorningScenes />
-        <section className="border border-rule px-4 py-3">
-          <span className="label-caps">À annoncer ce matin</span>
-          <p className="mt-1 font-serif text-[19px] leading-snug">
-            {game.dawnDeathIds.length === 0
-              ? 'Personne n\'est mort cette nuit.'
-              : game.dawnDeathIds.map(id => byId(id)).filter((p): p is Player => p !== undefined)
-                .map(p => `${p.name} (${ROLES[p.roleId].name})`).join(', ') + (game.dawnDeathIds.length > 1 ? ' sont morts.' : ' est mort.')}
-          </p>
-        </section>
+        <ShowPanel game={game} deaths />
         {bear?.growls && (
           <section className="flex flex-col border border-blood bg-blood-deep px-4 py-3">
             <span className="font-display text-[15px] font-bold tracking-[0.06em] text-[#F6EFE0]">L'ours grogne</span>

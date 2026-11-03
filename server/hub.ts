@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, Server } from 'node:http'
 import { WebSocket, WebSocketServer } from 'ws'
 import { buildCues, mjNextCue, startsDebate, stepChangeCutsSound } from '../shared/cues'
@@ -21,13 +22,15 @@ interface Client {
   audioReady: boolean
 }
 
-export function isLoopback(address: string | undefined): boolean {
-  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
-}
-
-/** Staff views need the pairing token, except from the server machine itself (the régie PC). */
-export function isTrusted(address: string | undefined, token: string | null, expected: string): boolean {
-  return isLoopback(address) || token === expected
+/**
+ * Staff views need the pairing token, from every machine. No exemption for loopback: in dev the
+ * Vite proxy makes every phone look like 127.0.0.1, and so would any reverse proxy in front.
+ */
+export function isTrusted(token: string | null | undefined, expected: string): boolean {
+  if (!token || !expected) return false
+  const a = Buffer.from(token)
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 export class Hub {
@@ -38,6 +41,7 @@ export class Hub {
   private acks = new Map<string, ServerMessage>()
   private readonly show: ShowController
   private nightStep: NightStepId | undefined
+  private nightFalls = false
   private timeUp: ReturnType<typeof setTimeout> | undefined
 
   constructor(
@@ -56,7 +60,7 @@ export class Hub {
     server.on('upgrade', (req: IncomingMessage, socket, head) => {
       const url = new URL(req.url ?? '/', 'http://localhost')
       if (url.pathname !== WS_PATH) return
-      wss.handleUpgrade(req, socket, head, ws => this.onConnection(ws, req, url))
+      wss.handleUpgrade(req, socket, head, ws => this.onConnection(ws, url))
     })
     const timer = setInterval(() => {
       for (const c of this.clients) {
@@ -71,13 +75,13 @@ export class Hub {
     timer.unref()
   }
 
-  private onConnection(ws: WebSocket, req: IncomingMessage, url: URL): void {
+  private onConnection(ws: WebSocket, url: URL): void {
     const role = url.searchParams.get('role')
     if (role !== 'mj' && role !== 'regie' && role !== 'public') {
       ws.close(4000, 'role')
       return
     }
-    if (role !== 'public' && !isTrusted(req.socket.remoteAddress, url.searchParams.get('k'), this.token)) {
+    if (role !== 'public' && !isTrusted(url.searchParams.get('k'), this.token)) {
       this.send(ws, { t: 'denied', reason: 'Jeton invalide : rescannez le QR code affiché par le serveur.' })
       ws.close(4001, 'token')
       return
@@ -118,6 +122,8 @@ export class Hub {
       switch (msg.t) {
         case 'action':
           this.store.dispatch(msg.action)
+          // « La nuit tombe » on the MJ's phone brings the night on stage too.
+          this.nightFalls = msg.action.type === 'ADVANCE_TO_NIGHT'
           break
         case 'undo':
           if (!this.store.undo()) error = 'Rien à annuler.'
@@ -126,10 +132,10 @@ export class Hub {
           if (!this.store.redo()) error = 'Rien à rétablir.'
           break
         case 'show': {
-          // The MJ may only step through the opening of the day; everything else is the régie's.
+          // The MJ may only play the next cue of the show; everything else is the régie's.
           const mjAllowed = client.role === 'mj' && msg.command.kind === 'go' && mjNextCue(this.cues, this.show.state) !== undefined
           if (client.role !== 'regie' && !mjAllowed) {
-            error = client.role === 'mj' ? 'La suite du spectacle est entre les mains de la régie.' : 'Seule la régie pilote le spectacle.'
+            error = client.role === 'mj' ? 'Rien à lancer pour l\'instant.' : 'Seule la régie pilote le spectacle.'
             break
           }
           const before = this.show.state.screen
@@ -159,6 +165,9 @@ export class Hub {
     if (stepChangeCutsSound(this.cues, this.nightStep, step)) this.show.command({ kind: 'stopSfx' }, this.cues)
     this.nightStep = step
     const before = this.show.state.screen
+    const nightfall = this.nightFalls ? this.cues.find(c => c.kind === 'nightfall') : undefined
+    this.nightFalls = false
+    if (nightfall) this.show.command({ kind: 'fire', cueId: nightfall.id }, this.cues)
     this.show.autoFire(this.cues)
     this.startDebate(before)
     this.armTimeUp()

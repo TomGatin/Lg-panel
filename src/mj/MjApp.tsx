@@ -9,6 +9,7 @@ import { useWakeLock } from '../ui/useWakeLock'
 import { Setup } from '../setup/Setup'
 import { DayView, TimerControls } from './DayView'
 import { NightView } from './NightView'
+import { ShowPanel } from './ShowPanel'
 import { CardReveal, MjHeader, PendingPrompts, PrimaryButton, StickyFooter, VillageSheet } from './parts'
 
 export function MjApp() {
@@ -31,6 +32,7 @@ export function MjApp() {
     const victory = checkVictory(game)
     body = (
       <>
+        <div className="px-4 pt-4"><ShowPanel game={game} deaths={game.cycle === 'day'} /></div>
         <section className="engraved mx-4 mt-4 flex flex-col items-center gap-3 px-5 py-6 text-center">
           <h1 className="font-display text-[28px] font-bold tracking-[0.06em]">{victory?.title ?? 'Fin de partie'}</h1>
           <p className="font-serif text-xl">{victory?.description}</p>
