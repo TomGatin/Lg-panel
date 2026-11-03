@@ -306,6 +306,17 @@ describe('rewind', () => {
     return { store, show: () => ctl!, send, act }
   }
 
+  it('lets the MJ pick the public screen, not the sound', () => {
+    const { send, show } = setup()
+    send('mj', { t: 'show', command: { kind: 'screen', view: 'composition' } })
+    expect(show().state.screen).toBe('composition')
+    send('mj', { t: 'show', command: { kind: 'villageScreen', on: true } })
+    send('mj', { t: 'show', command: { kind: 'screen', view: 'village' } })
+    expect(show().state.screen).toBe('village')
+    send('mj', { t: 'show', command: { kind: 'ambience', id: 'night' } })
+    expect(show().state.ambience).not.toBe('night')
+  })
+
   it('takes back steps of the day with the undo arrow, in order with game actions, putting the screen back', () => {
     const { send, show, act, store } = setup()
     for (let i = 0; i < 4; i++) send('mj', { t: 'show', command: { kind: 'go' } })

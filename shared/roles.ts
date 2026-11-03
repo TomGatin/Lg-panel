@@ -271,11 +271,11 @@ export const EDITION_ROLES: RoleId[] = [
 // Simple villagers are dull to play: every seat gets a power as long as the box has one left.
 export const PRESETS: CompositionPreset[] = [
   {
-    name: '8 Joueurs • Classique',
+    name: '9 Joueurs • Premiers Pas',
     roles: [
       'loup_garou', 'loup_garou',
-      'voyante', 'sorciere', 'chasseur',
-      'cupidon', 'petite_fille', 'montreur_ours'
+      'voyante', 'sorciere', 'chasseur', 'cupidon',
+      'petite_fille', 'montreur_ours', 'ancien'
     ]
   },
   {
@@ -284,6 +284,14 @@ export const PRESETS: CompositionPreset[] = [
       'loup_garou', 'loup_garou', 'infect_pere_des_loups',
       'voyante', 'sorciere', 'chasseur', 'montreur_ours',
       'cupidon', 'petite_fille', 'ancien'
+    ]
+  },
+  {
+    name: '11 Joueurs • La Traque',
+    roles: [
+      'loup_garou', 'loup_garou', 'grand_mechant_loup',
+      'voyante', 'sorciere', 'chasseur', 'cupidon',
+      'petite_fille', 'montreur_ours', 'renard', 'chevalier_epee_rouillee'
     ]
   },
   {
@@ -296,6 +304,23 @@ export const PRESETS: CompositionPreset[] = [
     ]
   },
   {
+    name: '13 Joueurs • Le Loup Blanc',
+    roles: [
+      'loup_garou', 'loup_garou', 'infect_pere_des_loups', 'loup_blanc',
+      'voyante', 'sorciere', 'chasseur', 'cupidon',
+      'montreur_ours', 'renard', 'ancien', 'petite_fille', 'chevalier_epee_rouillee'
+    ]
+  },
+  {
+    name: '14 Joueurs • Les Sœurs',
+    roles: [
+      'loup_garou', 'loup_garou', 'grand_mechant_loup', 'infect_pere_des_loups',
+      'voyante', 'sorciere', 'chasseur', 'cupidon',
+      'montreur_ours', 'renard', 'chevalier_epee_rouillee', 'ancien',
+      'deux_soeurs', 'deux_soeurs'
+    ]
+  },
+  {
     name: '15 Joueurs • Trahisons & Maléfices',
     roles: [
       'loup_garou', 'loup_garou', 'infect_pere_des_loups', 'loup_blanc',
@@ -303,23 +328,6 @@ export const PRESETS: CompositionPreset[] = [
       'montreur_ours', 'renard', 'joueur_de_flute', 'ancien',
       'enfant_sauvage', 'petite_fille', 'chevalier_epee_rouillee'
     ]
-  },
-  {
-    name: '18 Joueurs • Grande Assemblée',
-    roles: [
-      'loup_garou', 'loup_garou', 'loup_garou', 'infect_pere_des_loups', 'loup_blanc',
-      'voyante', 'sorciere', 'chasseur', 'cupidon',
-      'montreur_ours', 'renard', 'joueur_de_flute', 'ancien',
-      'enfant_sauvage', 'chien_loup', 'chevalier_epee_rouillee', 'petite_fille', 'ange'
-    ]
-  },
-  {
-    name: '20 Joueurs • Nuit de Folie',
-    roles: [
-      'loup_garou', 'loup_garou', 'loup_garou', 'grand_mechant_loup', 'infect_pere_des_loups', 'loup_blanc',
-      'voyante', 'sorciere', 'chasseur', 'cupidon', 'petite_fille',
-      'montreur_ours', 'renard', 'joueur_de_flute', 'ancien',
-      'enfant_sauvage', 'chien_loup', 'chevalier_epee_rouillee', 'deux_soeurs', 'deux_soeurs'
-    ]
   }
 ]
+

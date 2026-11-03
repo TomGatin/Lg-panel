@@ -152,9 +152,20 @@ export function Setup() {
   const applyPreset = (p: CompositionPreset) =>
     setRows(rs => p.roles.map((roleId, i) => ({ name: rs[i]?.name ?? '', roleId })))
 
-  // One seat per registrant: roles stay on their seat, new seats are villageois.
-  const applyMembers = (names: string[]) =>
-    setRows(rs => names.map((name, i) => ({ name, roleId: rs[i]?.roleId ?? 'villageois' })))
+  // Registrants only add names: a registrant already seated stays put, the others take the first unnamed seats,
+  // then new villageois seats. No card changes and no seat goes away.
+  const applyMembers = (names: string[]) => setRows(rs => {
+    const next = rs.map(r => ({ ...r }))
+    const seated = new Set(next.map(r => r.name.trim().toLocaleLowerCase('fr')).filter(Boolean))
+    for (const name of names) {
+      if (seated.has(name.trim().toLocaleLowerCase('fr'))) continue
+      const free = next.find(r => !r.name.trim())
+      if (free) free.name = name
+      else next.push({ name, roleId: 'villageois' })
+      seated.add(name.trim().toLocaleLowerCase('fr'))
+    }
+    return next
+  })
 
   const savePreset = () => {
     const name = presetName.trim()

@@ -10,7 +10,7 @@ import { useWakeLock } from '../ui/useWakeLock'
 import { Setup } from '../setup/Setup'
 import { dayProgress, DayView, TimerControls } from './DayView'
 import { NightView } from './NightView'
-import { CardReveal, MjHeader, PendingPrompts, PrimaryButton, StickyFooter, VillageSheet } from './parts'
+import { CardReveal, MjHeader, PendingPrompts, PrimaryButton, ScreenSheet, StickyFooter, VillageSheet } from './parts'
 
 export function MjApp() {
   const status = useLive(s => s.status)
@@ -19,6 +19,7 @@ export function MjApp() {
   const show = useLive(s => s.staff?.show)
   const dispatch = useLive(s => s.dispatch)
   const [village, setVillage] = useState(false)
+  const [screenSheet, setScreenSheet] = useState(false)
   const [inspect, setInspect] = useState<{ player: Player; context?: string } | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
   useWakeLock()
@@ -61,7 +62,7 @@ export function MjApp() {
     const done = steps.filter(s => game.night.completedSteps[s.id]).length
     body = (
       <>
-        <MjHeader game={game} onVillage={() => setVillage(true)}
+        <MjHeader game={game} onVillage={() => setVillage(true)} onScreen={() => setScreenSheet(true)}
           subtitle={done < steps.length ? `rite ${done + 1} sur ${steps.length}` : 'tous les rites accomplis'} />
         <NightView game={game} onInspect={(player, context) => setInspect({ player, context })} />
       </>
@@ -69,7 +70,7 @@ export function MjApp() {
   } else {
     body = (
       <>
-        <MjHeader game={game} onVillage={() => setVillage(true)} right={<TimerControls game={game} />}
+        <MjHeader game={game} onVillage={() => setVillage(true)} onScreen={() => setScreenSheet(true)} right={<TimerControls game={game} />}
           subtitle={progress.index >= 0 ? `étape ${progress.index + 1} sur ${progress.total}` : 'lever du jour'} />
         <DayView game={game} />
       </>
@@ -80,6 +81,7 @@ export function MjApp() {
     <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col bg-ink font-serif">
       {body}
       {game.phase !== 'setup' && <PendingPrompts game={game} />}
+      {screenSheet && <ScreenSheet onClose={() => setScreenSheet(false)} />}
       {village && <VillageSheet game={game} onClose={() => setVillage(false)} onInspect={p => setInspect({ player: p })} />}
       {inspect && <CardReveal player={inspect.player} players={game.players} context={inspect.context} onClose={() => setInspect(null)} />}
       <ErrorToast />

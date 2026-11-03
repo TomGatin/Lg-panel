@@ -169,9 +169,10 @@ export class Hub {
           }
           break
         case 'show': {
-          // The MJ may only play the next cue of the show; everything else is the régie's.
+          // The MJ plays the next cue, steps back, and picks what the public screen shows; sound and lights are the régie's.
           const mjAllowed = client.role === 'mj' &&
-            ((msg.command.kind === 'go' && mjNextCue(this.cues, this.show.state) !== undefined) || msg.command.kind === 'back')
+            ((msg.command.kind === 'go' && mjNextCue(this.cues, this.show.state) !== undefined) || msg.command.kind === 'back' ||
+              msg.command.kind === 'screen' || msg.command.kind === 'villageScreen')
           if (client.role !== 'regie' && !mjAllowed) {
             error = client.role === 'mj' ? 'Rien à lancer pour l\'instant.' : 'Seule la régie pilote le spectacle.'
             break

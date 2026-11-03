@@ -1,8 +1,9 @@
-import { Moon, Sun, Undo2, Users, X } from 'lucide-react'
+import { Monitor, Moon, Sun, Undo2, Users, X } from 'lucide-react'
 import { ReactNode, useState } from 'react'
+import { SCREEN_LABELS } from '../../shared/cues'
 import { ROLES } from '../../shared/roles'
 import { FoxResult, isPlayerWerewolf } from '../../shared/rules'
-import { GameState, Player } from '../../shared/types'
+import { GameState, Player, ScreenView } from '../../shared/types'
 import { useLive } from '../lib/live'
 import { ConnectionBadge } from '../ui/Feedback'
 import { RoleCard } from '../ui/RoleCard'
@@ -15,9 +16,10 @@ export function effectiveCamp(p: Player, players: Player[]): string {
   return TEAM_LABEL[ROLES[p.roleId].team]
 }
 
-export function MjHeader({ game, subtitle, right, onVillage }: { game: GameState; subtitle: ReactNode; right?: ReactNode; onVillage: () => void }) {
+export function MjHeader({ game, subtitle, right, onVillage, onScreen }: { game: GameState; subtitle: ReactNode; right?: ReactNode; onVillage: () => void; onScreen: () => void }) {
   const undo = useLive(s => s.undo)
   const canUndo = useLive(s => s.staff?.canUndo ?? false)
+  const screen = useLive(s => s.staff?.show.screen)
   const Icon = game.cycle === 'night' ? Moon : Sun
   return (
     <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-rule bg-ink/95 py-3 pl-5 pr-3 backdrop-blur">
@@ -27,6 +29,10 @@ export function MjHeader({ game, subtitle, right, onVillage }: { game: GameState
           {game.cycle === 'night' ? 'Nuit' : 'Jour'} {game.roundNumber}
         </span>
         <span className="flex flex-wrap items-center gap-x-3 font-serif text-[15px] italic text-muted"><span className="whitespace-nowrap">{subtitle}</span><ConnectionBadge /></span>
+        <button type="button" onClick={onScreen} aria-label={`Écran public : ${screen ? SCREEN_LABELS[screen] : '…'}. Changer`}
+          className="mt-1 flex min-h-[36px] w-fit items-center gap-2 border border-rule px-2.5 font-sans text-[13px] font-semibold text-bone">
+          <Monitor size={15} aria-hidden />Écran : {screen ? SCREEN_LABELS[screen] : '…'}
+        </button>
       </div>
       {right}
       <button type="button" aria-label="Voir le village" onClick={onVillage}
@@ -230,4 +236,37 @@ export function PendingPrompts({ game }: { game: GameState }) {
     )
   }
   return null
+}
+
+const PUBLIC_SCREENS: ScreenView[] = ['night', 'day', 'reveal', 'debate', 'vote', 'captain', 'composition', 'village', 'victory', 'blackout']
+
+/** What the big screen shows, taken by hand: the next « Valider » brings the show back on its own track. */
+export function ScreenSheet({ onClose }: { onClose: () => void }) {
+  const show = useLive(s => s.staff?.show)
+  const send = useLive(s => s.show)
+  if (!show) return null
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Écran public" className="fixed inset-0 z-30 flex flex-col bg-ink">
+      <div className="flex items-center gap-2 border-b border-rule py-3 pl-5 pr-3">
+        <h2 className="flex flex-1 flex-col font-display text-xl font-bold tracking-[0.06em]">
+          Écran public
+          <span className="font-serif text-[15px] font-normal italic tracking-normal text-muted">affiche : {SCREEN_LABELS[show.screen]}</span>
+        </h2>
+        <button type="button" aria-label="Fermer" onClick={onClose} className="flex h-12 w-12 items-center justify-center border border-rule"><X size={20} /></button>
+      </div>
+      <div className="grid grid-cols-2 gap-2 overflow-y-auto p-4">
+        {PUBLIC_SCREENS.map(v => (
+          <button key={v} type="button" aria-pressed={show.screen === v} disabled={v === 'village' && !show.villageScreen}
+            onClick={() => { send({ kind: 'screen', view: v }); onClose() }}
+            className={`min-h-[56px] border font-display text-[16px] font-bold tracking-[0.06em] disabled:opacity-40 ${show.screen === v ? 'border-blood bg-blood text-[#F6EFE0]' : 'border-rule text-bone'}`}>
+            {SCREEN_LABELS[v]}
+          </button>
+        ))}
+      </div>
+      <label className="flex items-center gap-3 px-5 pb-6 font-serif text-[16px] text-muted">
+        <input type="checkbox" checked={show.villageScreen} onChange={e => send({ kind: 'villageScreen', on: e.target.checked })} className="h-5 w-5 accent-blood-go" />
+        Autoriser l'écran Village (morts et rôles révélés, visibles par tous)
+      </label>
+    </div>
+  )
 }
