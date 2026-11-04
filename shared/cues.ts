@@ -7,6 +7,7 @@ const NIGHT_LIGHT = { kind: 'scene', name: 'night' } as const
 const DAY_LIGHT = { kind: 'scene', name: 'debate' } as const
 
 const STEP_EFFECTS: Partial<Record<NightStepId, CueEffects>> = {
+  village_endort: { light: NIGHT_LIGHT },
   cupidon: { sfx: 'cupid', light: { kind: 'scene', name: 'cupid' } },
   // The lovers wake up in the same pink, over the same music.
   amoureux: { keepSound: true },

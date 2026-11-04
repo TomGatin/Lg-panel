@@ -114,9 +114,9 @@ describe('cues', () => {
     const g = new Game(['loup_garou', 'voyante', 'villageois', 'villageois'])
     const wolves = () => buildCues(g.state).find(c => c.stepId === 'loups_garous')
     expect(wolves()?.ready).toBe(false)
-    g.do({ type: 'COMPLETE_NIGHT_STEP', stepId: 'voyante' })
+    g.do({ type: 'COMPLETE_NIGHT_STEP', stepId: 'village_endort' }, { type: 'COMPLETE_NIGHT_STEP', stepId: 'voyante' })
     expect(wolves()?.ready).toBe(true)
-    const played = { ...show('night'), firedCueIds: ['n1-nightfall'] }
+    const played = { ...show('night'), firedCueIds: ['n1-nightfall', 'n1-village_endort'] }
     expect(nextCue(buildCues(g.state), played)?.stepId).toBe('loups_garous')
   })
 

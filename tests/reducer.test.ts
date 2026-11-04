@@ -228,7 +228,7 @@ describe('voleur', () => {
 
   it('wakes first on night 1 and plays the card he took', () => {
     const g = setup(['voyante', 'villageois'])
-    expect(getNightSteps(g.state)[0].id).toBe('voleur')
+    expect(getNightSteps(g.state).map(s => s.id).slice(0, 2)).toEqual(['village_endort', 'voleur'])
     g.do({ type: 'THIEF_SWAP', roleId: 'voyante' }, { type: 'COMPLETE_NIGHT_STEP', stepId: 'voleur' })
     expect(g.player(1).roleId).toBe('voyante')
     expect(getNightSteps(g.state).map(s => s.id)).toContain('voyante')

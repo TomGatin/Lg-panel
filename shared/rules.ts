@@ -97,6 +97,7 @@ export function getFoxResult(targetId: string, players: Player[]): FoxResult | n
 }
 
 export type NightStepId =
+  | 'village_endort'
   | 'voleur'
   | 'cupidon'
   | 'amoureux'
@@ -138,6 +139,9 @@ export function getNightSteps(state: GameState): NightStep[] {
   const push = (step: Omit<NightStep, 'playerIds'>, who: Player[]) => steps.push({ ...step, playerIds: who.map(p => p.id) })
 
   if (roundNumber === 1) {
+    push({ id: 'village_endort', title: 'Le village s\'endort',
+      spokenPrompt: 'La nuit tombe sur Thiercelieux, le village s\'endort. Fermez les yeux.',
+      instructions: 'Attendez que tout le monde ait les yeux fermés, puis validez.' }, [])
     const thief = players.find(p => p.id === state.thief?.playerId && p.isAlive)
     if (thief) {
       push({ id: 'voleur', title: 'Le Voleur', roleId: 'voleur',
